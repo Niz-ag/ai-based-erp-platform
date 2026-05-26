@@ -1,0 +1,64 @@
+services:
+  postgres:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: amdox
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./packages/backend
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/amdox?schema=public
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=amdox-secret-key-change-in-production
+      - BACKEND_PORT=3000
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: always
+
+  frontend:
+    build:
+      context: ./packages/frontend
+    ports:
+      - "5000:5000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3000/api
+    depends_on:
+      - backend
+    restart: always
+
+  forecast-service:
+    build:
+      context: ./packages/forecast-service
+    ports:
+      - "8000:8000"
+    environment:
+      - NODE_ENV=production
+    restart: always
+
+volumes:
+  postgres_data:

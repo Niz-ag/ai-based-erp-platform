@@ -1,0 +1,75 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+packages/*/node_modules/
+
+# Testing
+coverage/
+
+# Next.js
+.next/
+out/
+build/
+packages/frontend/.next/
+packages/frontend/out/
+
+# NestJS / Backend
+dist/
+packages/backend/dist/
+*.tsbuildinfo
+
+# Python / ML Forecast Service
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+packages/forecast-service/__pycache__/
+packages/forecast-service/*.py[cod]
+
+# # Environment variables
+# .env
+# .env.local
+# .env.development.local
+# .env.test.local
+# .env.production.local
+# packages/*/.env
+
+# Prisma
+*.db
+*.db-journal
+*.sqlite
+
+# Docker
+docker-compose.override.yml
+.docker-volumes/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor directories and files
+.idea/
+.vscode/
+*.suo
+*.ntvs
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+.md/
