@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../common/prisma.service';
+import { CurrentUserData } from '../common/decorators/current-user.decorator';
 
 export interface DataPoint {
   date: string;
@@ -14,19 +16,32 @@ export interface ForecastResult {
 
 @Injectable()
 export class ForecastService {
-  private historicalData: Map<string, DataPoint[]> = new Map();
   private readonly ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://forecast-service:8000';
 
-  async addHistoricalData(sku: string, quantity: number, date: string): Promise<{ success: boolean }> {
-    if (!this.historicalData.has(sku)) {
-      this.historicalData.set(sku, []);
-    }
-    this.historicalData.get(sku)!.push({ date, quantity });
+  constructor(private prisma: PrismaService) {}
+
+  async addHistoricalData(sku: string, quantity: number, date: string, currentUser: CurrentUserData): Promise<{ success: boolean }> {
+    await this.prisma.skuHistory.create({
+      data: {
+        sku,
+        quantity,
+        date: new Date(date),
+        tenantId: currentUser.tenantId,
+      },
+    });
     return { success: true };
   }
 
-  async forecast(sku: string, periods: number = 12): Promise<ForecastResult> {
-    const history = this.historicalData.get(sku) || [];
+  async forecast(sku: string, periods: number = 12, currentUser: CurrentUserData): Promise<ForecastResult> {
+    const historyData = await this.prisma.skuHistory.findMany({
+      where: { sku, tenantId: currentUser.tenantId },
+      orderBy: { date: 'asc' },
+    });
+
+    const history = historyData.map(d => ({
+      date: d.date.toISOString().split('T')[0],
+      quantity: d.quantity,
+    }));
     
     try {
       // Call dedicated ML microservice (Python FastAPI)
@@ -116,25 +131,26 @@ export class ForecastService {
     return null;
   }
 
-  async getTrends(sku?: string): Promise<any[]> {
-    if (sku) {
-      const data = this.historicalData.get(sku) || [];
-      const values = data.map(d => d.quantity);
-      return [{
-        sku,
-        trend: this.calculateTrend(values),
-        avgQuantity: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0,
-      }];
-    }
-    
-    return Array.from(this.historicalData.keys()).map(s => {
-      const data = this.historicalData.get(s) || [];
-      const values = data.map(d => d.quantity);
-      return {
-        sku: s,
-        trend: this.calculateTrend(values),
-        avgQuantity: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0,
-      };
+  async getTrends(currentUser: CurrentUserData, sku?: string): Promise<any[]> {
+    const where: any = { tenantId: currentUser.tenantId };
+    if (sku) where.sku = sku;
+
+    const allHistory = await this.prisma.skuHistory.findMany({
+      where,
+      orderBy: { date: 'asc' },
     });
+
+    // Group by SKU
+    const grouped = allHistory.reduce((acc, curr) => {
+      if (!acc[curr.sku]) acc[curr.sku] = [];
+      acc[curr.sku].push(curr.quantity);
+      return acc;
+    }, {} as Record<string, number[]>);
+
+    return Object.entries(grouped).map(([s, values]) => ({
+      sku: s,
+      trend: this.calculateTrend(values),
+      avgQuantity: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0,
+    }));
   }
 }

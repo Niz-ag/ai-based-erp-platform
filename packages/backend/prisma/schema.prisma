@@ -39,10 +39,41 @@ model Tenant {
   taxSlabs      TaxSlab[]
   webhookSubscriptions WebhookSubscription[]
   webhookDeliveries WebhookDelivery[]
-  reports       Report[]
+  reports           Report[]
+  skuHistory        SkuHistory[]
+  sequences         Sequence[]
 
   @@map("tenants")
 }
+
+model SkuHistory {
+  id        String   @id @default(uuid())
+  sku       String
+  quantity  Float
+  date      DateTime
+  tenantId  String   @map("tenant_id")
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([sku, tenantId, date])
+  @@map("sku_history")
+}
+
+model Sequence {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  name      String   // e.g., "journal_entry"
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, name])
+  @@map("sequences")
+}
+
+// Existing Tenant updates to include relations
 
 model User {
   id           String   @id @default(uuid())
@@ -85,17 +116,19 @@ model Role {
 }
 
 model AuditLog {
-  id         String   @id @default(uuid())
-  action     String
-  entityType String   @map("entity_type")
-  entityId   String?  @map("entity_id")
-  oldValue   Json?    @map("old_value")
-  newValue   Json?    @map("new_value")
-  ipAddress  String?  @map("ip_address")
-  userAgent  String?  @map("user_agent")
-  tenantId   String   @map("tenant_id")
-  userId     String   @map("user_id")
-  createdAt  DateTime @default(now())
+  id           String   @id @default(uuid())
+  action       String
+  entityType   String   @map("entity_type")
+  entityId     String?  @map("entity_id")
+  oldValue     Json?    @map("old_value")
+  newValue     Json?    @map("new_value")
+  ipAddress    String?  @map("ip_address")
+  userAgent    String?  @map("user_agent")
+  tenantId     String   @map("tenant_id")
+  userId       String   @map("user_id")
+  hash         String?
+  previousHash String?  @map("previous_hash")
+  createdAt    DateTime @default(now())
 
   tenant Tenant @relation(fields: [tenantId], references: [id])
   user   User   @relation(fields: [userId], references: [id])

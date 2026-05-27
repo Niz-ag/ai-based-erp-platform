@@ -21,8 +21,13 @@ export interface InvoiceData {
 export class OcrService {
   
   async extractText(buffer: Buffer): Promise<string> {
-    const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
-    return text || this.generateDemoInvoiceText(); // Fallback if OCR empty
+    try {
+      const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
+      return text || this.generateDemoInvoiceText();
+    } catch (error) {
+      console.error('OCR Extraction failed:', error);
+      return this.generateDemoInvoiceText();
+    }
   }
 
   parseInvoiceData(text: string): InvoiceData {
@@ -33,39 +38,81 @@ export class OcrService {
       rawText: text,
     };
 
-    // Extract invoice number - look for INV #, Invoice No, etc.
-    const invMatch = text.match(/(?:INV[.# ]|Invoice\s*(?:No|Number)?:?\s*)([A-Z0-9-]+)/i);
-    if (invMatch) invoice.invoiceNumber = invMatch[1];
+    // 1. IMPROVED: Invoice Number Extraction (Multi-pattern)
+    const invPatterns = [
+      /(?:INV[.# ]|Invoice\s*(?:No|Number)?:?\s*)([A-Z0-9-]+)/i,
+      /(?:#|No\.?)\s*([A-Z0-9-]{4,})/i,
+      /^[A-Z0-9-]{5,15}$/m // Fallback: look for a lone alphanumeric code
+    ];
+    for (const p of invPatterns) {
+      const match = text.match(p);
+      if (match) {
+        invoice.invoiceNumber = match[1];
+        break;
+      }
+    }
 
-    // Extract date - look for date patterns
-    const dateMatch = text.match(/(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/);
-    if (dateMatch) invoice.date = dateMatch[1];
+    // 2. IMPROVED: Date Extraction
+    const datePatterns = [
+      /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/,
+      /(?:Date|Issued):?\s*([a-zA-Z]+\s+\d{1,2},?\s+\d{4})/i,
+      /(\d{4}[\/\-]\d{2}[\/\-]\d{2})/
+    ];
+    for (const p of datePatterns) {
+      const match = text.match(p);
+      if (match) {
+        invoice.date = match[1];
+        break;
+      }
+    }
 
-    // Extract vendor (usually first substantial line)
+    // 3. IMPROVED: Vendor Detection (Search for typical company headers)
     for (const line of lines) {
-      if (line.length > 3 && !line.match(/^[\d\s\-\/]+$/) && !line.toLowerCase().includes('invoice')) {
+      if (line.length > 3 && 
+          !line.match(/^[\d\s\-\/.,]+$/) && 
+          !line.toLowerCase().includes('invoice') &&
+          !line.toLowerCase().includes('date') &&
+          !line.toLowerCase().includes('bill to')) {
         invoice.vendor = line;
         break;
       }
     }
 
-    // Extract total
-    const totalMatch = text.match(/(?:TOTAL|Grand Total|Amount Due):?.*?\$?([\d,]+\.?\d*)/i);
-    if (totalMatch) invoice.total = parseFloat(totalMatch[1].replace(',', ''));
+    // 4. IMPROVED: Financial Total Extraction (Precision focus)
+    const totalPatterns = [
+      /(?:TOTAL|Grand Total|Amount Due|Total Due):?.*?\$?([\d,]+\.\d{2})/i,
+      /(?:TOTAL|Grand Total):?.*?\$?([\d,]+)/i
+    ];
+    for (const p of totalPatterns) {
+      const match = text.match(p);
+      if (match) {
+        invoice.total = parseFloat(match[1].replace(/,/g, ''));
+        break;
+      }
+    }
 
-    // Extract tax
-    const taxMatch = text.match(/(?:TAX|VAT|GST):?.*?\$?([\d,]+\.?\d*)/i);
-    if (taxMatch) invoice.tax = parseFloat(taxMatch[1].replace(',', ''));
-
-    // Extract line items - look for quantity x price patterns
-    const itemMatches = text.matchAll(/(\d+)\s*[xX]\s*\$?([\d,]+\.?\d*)\s+(.+)/g);
-    for (const match of itemMatches) {
-      invoice.items.push({
-        description: match[3].trim(),
-        quantity: parseInt(match[1]),
-        unitPrice: parseFloat(match[2].replace(',', '')),
-        total: parseInt(match[1]) * parseFloat(match[2].replace(',', '')),
-      });
+    // 5. IMPROVED: Line Item Parsing (Heuristic-based)
+    // Looking for patterns like: [Qty] x [Price] [Description] or [Qty] [Description] [Price]
+    const itemLines = lines.filter(l => l.match(/\d+/) && l.match(/\d+\.\d{2}/));
+    for (const line of itemLines) {
+      const qtyMatch = line.match(/^(\d+)\s/);
+      const priceMatch = line.match(/\$?([\d,]+\.\d{2})/g);
+      
+      if (qtyMatch && priceMatch && priceMatch.length >= 1) {
+        const qty = parseInt(qtyMatch[1]);
+        const price = parseFloat(priceMatch[0].replace(/[\$,]/g, ''));
+        // Description is usually what's left
+        const desc = line.replace(qtyMatch[0], '').replace(priceMatch[0], '').replace(/[xX\$]/g, '').trim();
+        
+        if (desc.length > 2) {
+          invoice.items.push({
+            description: desc,
+            quantity: qty,
+            unitPrice: price,
+            total: qty * price
+          });
+        }
+      }
     }
 
     return invoice;

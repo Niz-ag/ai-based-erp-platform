@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import * as crypto from 'crypto';
 
 interface LogQueryOptions {
   page: number;
@@ -75,6 +76,36 @@ export class AuditService {
     ipAddress?: string;
     userAgent?: string;
   }) {
+    // Sanitize and truncate newValue to prevent bloat
+    let newValue = params.newValue;
+    if (newValue && typeof newValue === 'object') {
+      const str = JSON.stringify(newValue);
+      if (str.length > 5000) {
+        newValue = { _truncated: true, originalLength: str.length, partial: str.substring(0, 5000) };
+      }
+    }
+
+    // Hash Chaining for Tamper-Evidence (Requirement F-09)
+    const previousLog = await this.prisma.auditLog.findFirst({
+      where: { tenantId: params.tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const previousHash = previousLog?.hash || '0'.repeat(64);
+    const currentPayload = JSON.stringify({
+      tenantId: params.tenantId,
+      userId: params.userId,
+      action: params.action,
+      entityType: params.entityType,
+      entityId: params.entityId,
+      newValue,
+    });
+
+    const hash = crypto
+      .createHash('sha256')
+      .update(previousHash + currentPayload)
+      .digest('hex');
+
     return this.prisma.auditLog.create({
       data: {
         tenantId: params.tenantId,
@@ -83,9 +114,11 @@ export class AuditService {
         entityType: params.entityType,
         entityId: params.entityId,
         oldValue: params.oldValue,
-        newValue: params.newValue,
+        newValue,
         ipAddress: params.ipAddress,
         userAgent: params.userAgent,
+        hash,
+        previousHash,
       },
     });
   }

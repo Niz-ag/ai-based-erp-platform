@@ -38,7 +38,18 @@ function LoginForm() {
     resolver: zodResolver(loginSchema),
   });
 
-  // ... (keep useEffect)
+  useEffect(() => {
+    if (isAuthenticated && !tokenFromUrl) {
+      router.push(redirect);
+    }
+
+    if (tokenFromUrl) {
+      localStorage.setItem("token", tokenFromUrl);
+      // Fetch user data would happen here or in AuthProvider
+      // For now we just refresh to let AuthProvider handle it
+      window.location.href = redirect;
+    }
+  }, [isAuthenticated, tokenFromUrl, router, redirect]);
 
   const handleSSOLogin = () => {
     const ssoUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/sso/login`;

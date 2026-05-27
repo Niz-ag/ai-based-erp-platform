@@ -157,8 +157,8 @@ export class FinanceService {
 
   async createJournalEntry(dto: CreateJournalEntryDto, currentUser: CurrentUserData) {
     // Validate double-entry: debits must equal credits
-    let totalDebits = 0;
-    let totalCredits = 0;
+    let totalDebits = new Prisma.Decimal(0);
+    let totalCredits = new Prisma.Decimal(0);
 
     for (const line of dto.lines) {
       if (!line.accountId) {
@@ -174,25 +174,28 @@ export class FinanceService {
         throw new NotFoundException(`Account ${line.accountId} not found`);
       }
 
-      if (line.debit) totalDebits += Number(line.debit);
-      if (line.credit) totalCredits += Number(line.credit);
+      if (line.debit) totalDebits = totalDebits.plus(new Prisma.Decimal(line.debit));
+      if (line.credit) totalCredits = totalCredits.plus(new Prisma.Decimal(line.credit));
     }
 
     // Validate debits = credits
-    if (Math.abs(totalDebits - totalCredits) > 0.001) {
+    if (!totalDebits.equals(totalCredits)) {
       throw new BadRequestException(
         `Double-entry validation failed: debits (${totalDebits}) must equal credits (${totalCredits})`,
       );
     }
 
-    // Generate entry number
-    const entryCount = await this.prisma.journalEntry.count({
-      where: { tenantId: currentUser.tenantId },
-    });
-    const entryNumber = `JE-${String(entryCount + 1).padStart(6, '0')}`;
-
     // Create journal entry with lines in transaction
     return this.prisma.$transaction(async (tx) => {
+      // Generate entry number ATOMICALLY using the Sequence table
+      const sequence = await tx.sequence.upsert({
+        where: { tenantId_name: { tenantId: currentUser.tenantId, name: 'journal_entry' } },
+        update: { value: { increment: 1 } },
+        create: { tenantId: currentUser.tenantId, name: 'journal_entry', value: 1 },
+      });
+      
+      const entryNumber = `JE-${String(sequence.value).padStart(6, '0')}`;
+
       const entry = await tx.journalEntry.create({
         data: {
           entryNumber,

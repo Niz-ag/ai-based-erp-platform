@@ -73,3 +73,7 @@ ehthumbs.db
 Thumbs.db
 
 .md/
+*.tar.gz
+*.pub
+deploy_key
+*.pem

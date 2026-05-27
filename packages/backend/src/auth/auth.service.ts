@@ -152,12 +152,22 @@ export class AuthService {
     });
 
     if (!user) {
-      // Get default tenant and role
-      const tenant = await this.prisma.tenant.findFirst();
-      const role = await this.prisma.role.findFirst();
+      // Derive tenant from email domain
+      const domain = data.email.split('@')[1];
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { domain },
+      });
 
-      if (!tenant || !role) {
-        throw new Error('No tenant or role found. Please seed the database.');
+      if (!tenant) {
+        throw new UnauthorizedException(`No tenant registered for domain: ${domain}`);
+      }
+
+      const role = await this.prisma.role.findFirst({
+        where: { name: 'User' },
+      });
+
+      if (!role) {
+        throw new Error('Default User role not found. Please seed the database.');
       }
 
       // Create user from SSO - no password needed

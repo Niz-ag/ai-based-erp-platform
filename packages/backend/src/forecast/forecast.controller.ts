@@ -1,5 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ForecastService } from './forecast.service';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.decorator';
 
 export class ForecastDemandDto {
   sku!: string;
@@ -13,26 +15,27 @@ class HistoricalDataDto {
 }
 
 @Controller('forecast')
+@UseGuards(JwtAuthGuard)
 export class ForecastController {
   constructor(private readonly forecastService: ForecastService) {}
 
   @Post('demand')
-  forecastDemand(@Body() dto: ForecastDemandDto) {
-    return this.forecastService.forecast(dto.sku, dto.periods || 12);
+  forecastDemand(@Body() dto: ForecastDemandDto, @CurrentUser() user: CurrentUserData) {
+    return this.forecastService.forecast(dto.sku, dto.periods || 12, user);
   }
 
   @Post('historical')
-  addHistoricalData(@Body() dto: HistoricalDataDto) {
-    return this.forecastService.addHistoricalData(dto.sku, dto.quantity, dto.date);
+  addHistoricalData(@Body() dto: HistoricalDataDto, @CurrentUser() user: CurrentUserData) {
+    return this.forecastService.addHistoricalData(dto.sku, dto.quantity, dto.date, user);
   }
 
   @Get('demand/:sku')
-  getForecast(@Param('sku') sku: string, @Query('periods') periods = 12) {
-    return this.forecastService.forecast(sku, Number(periods));
+  getForecast(@Param('sku') sku: string, @Query('periods') periods = 12, @CurrentUser() user: CurrentUserData) {
+    return this.forecastService.forecast(sku, Number(periods), user);
   }
 
   @Get('trends')
-  getTrends(@Query('sku') sku?: string) {
-    return this.forecastService.getTrends(sku);
+  getTrends(@CurrentUser() user: CurrentUserData, @Query('sku') sku?: string) {
+    return this.forecastService.getTrends(user, sku);
   }
 }

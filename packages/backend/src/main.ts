@@ -7,6 +7,9 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  const port = process.env.BACKEND_PORT || 3000;
+  app.setGlobalPrefix('api');
+
   // Swagger Configuration
   const config = new DocumentBuilder()
     .setTitle('AMDOX ERP API')
@@ -16,7 +19,7 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  SwaggerModule.setup('api/docs', app, document);
 
   app.enableCors({
     origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5000'],
@@ -29,9 +32,6 @@ async function bootstrap() {
       transform: true,
     }),
   );
-
-  const port = process.env.BACKEND_PORT || 3000;
-  app.setGlobalPrefix('api');
 
   await app.listen(port);
   console.log('AMDOX Backend running on http://localhost:' + port);

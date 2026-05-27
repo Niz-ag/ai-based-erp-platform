@@ -16,11 +16,9 @@ declare global {
 @Injectable()
 export class TenantMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction) {
-    const tenantId = req.headers['x-tenant-id'] as string;
-    
-    if (tenantId) {
-      req.tenantContext = { tenantId };
-    }
+    // SECURITY: Never derive tenant context from unverified headers like 'x-tenant-id'.
+    // Tenant context is now managed exclusively by the JwtStrategy and Guards
+    // to prevent tenant spoofing.
     
     next();
   }

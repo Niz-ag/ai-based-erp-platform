@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthModule } from './auth/auth.module';
+import { PrismaModule } from './common/prisma.module';
 import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
 import { FinanceModule } from './finance/finance.module';
@@ -30,6 +31,7 @@ import { ReportsModule } from './reports/reports.module';
       secret: process.env.JWT_SECRET || 'amdox-secret-key-change-in-production',
       signOptions: { expiresIn: '24h' },
     }),
+    PrismaModule,
     AuthModule,
     TenantsModule,
     UsersModule,
