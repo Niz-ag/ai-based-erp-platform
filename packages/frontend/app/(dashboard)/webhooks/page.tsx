@@ -27,7 +27,8 @@ export default function WebhooksPage() {
   const [formData, setFormData] = useState({ url: "", events: [] as string[], secret: "" });
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
 
-  const canManage = user?.role === 'superadmin' || user?.role === 'admin' || user?.role === 'manager';
+  const userRole = user?.role?.name?.toLowerCase();
+  const canManage = userRole === 'superadmin' || userRole === 'admin' || userRole === 'manager';
 
   const { data: webhooks, isLoading } = useQuery({
     queryKey: ["webhooks"],
@@ -80,7 +81,7 @@ export default function WebhooksPage() {
     );
   };
 
-  const webhookList = webhooks?.data || [];
+  const webhookList = webhooks || [];
 
   return (
     <div className="p-6 space-y-6">

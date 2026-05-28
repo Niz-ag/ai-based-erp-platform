@@ -42,7 +42,7 @@ export default function UsersPage() {
     try {
       const data = await usersApi.getRoles();
       // Filter roles based on current user's permissions
-      const currentUserRole = user?.role?.toLowerCase();
+      const currentUserRole = user?.role?.name?.toLowerCase();
       let allowedRoles = data;
       
       if (currentUserRole === 'admin') {
@@ -106,7 +106,7 @@ export default function UsersPage() {
             Manage users across all tenants
           </p>
         </div>
-        {user?.role !== 'user' && (
+        {user?.role?.name?.toLowerCase() !== 'user' && user?.role?.name?.toLowerCase() !== 'viewer' && (
           <Button onClick={() => setIsModalOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
             Add User

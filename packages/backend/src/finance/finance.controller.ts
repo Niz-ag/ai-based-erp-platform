@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Query, Param, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { FinanceService } from './finance.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -14,6 +14,11 @@ interface JournalEntryFilters extends PaginationQuery {
   startDate?: Date;
   endDate?: Date;
   status?: 'DRAFT' | 'POSTED' | 'VOIDED';
+}
+
+interface ReportQuery {
+  startDate: string;
+  endDate: string;
 }
 
 // Account DTOs
@@ -93,6 +98,29 @@ export class FinanceController {
     @CurrentUser() currentUser: CurrentUserData,
   ) {
     return this.financeService.createJournalEntry(dto, currentUser);
+  }
+
+  @Put('journal-entries/:id/post')
+  @Roles('superadmin', 'admin', 'manager')
+  postJournalEntry(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.financeService.postJournalEntry(id, currentUser);
+  }
+
+  // Reports
+  @Get('reports/profit-loss')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  getProfitAndLoss(
+    @Query() query: ReportQuery,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.financeService.getProfitAndLoss(
+      currentUser,
+      new Date(query.startDate),
+      new Date(query.endDate),
+    );
   }
 
   // Currencies endpoints

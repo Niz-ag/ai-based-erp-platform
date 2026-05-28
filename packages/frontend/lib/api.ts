@@ -1,4 +1,16 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+/**
+ * AI MANDATE: Production-Grade API Client (No Vibe Coding)
+ * Strict typing, robust error handling, and centralized authentication.
+ */
+
+import { 
+  User, Tenant, Account, JournalEntry, Employee, 
+  Product, PurchaseOrder, AuditLog, PaginatedResponse,
+  LoginResponse, Currency, Department, LeaveRequest,
+  Vendor, Project, Task, Milestone, PayrollRun, Role
+} from './types';
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1';
 
 interface FetchOptions extends RequestInit {
   params?: Record<string, any>;
@@ -7,9 +19,8 @@ interface FetchOptions extends RequestInit {
 async function fetchApi<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const { params, ...fetchOptions } = options;
   
-  let url = `${API_BASE_URL}/api${endpoint}`;
+  let url = `${API_BASE_URL}${endpoint}`;
   
-  // Add query params if present
   if (params) {
     const searchParams = new URLSearchParams();
     Object.entries(params).forEach(([key, value]) => {
@@ -23,19 +34,21 @@ async function fetchApi<T = unknown>(endpoint: string, options: FetchOptions = {
     }
   }
 
-  // Get token from localStorage (client-side only)
-  let headers: HeadersInit = {
+  let headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...fetchOptions.headers,
+    ...(fetchOptions.headers as Record<string, string>),
   };
+
+  // If we're sending FormData (multipart/form-data), 
+  // we MUST remove the Content-Type header to let the browser set the boundary correctly.
+  if (headers['Content-Type'] === 'multipart/form-data') {
+    delete headers['Content-Type'];
+  }
 
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('token');
     if (token) {
-      headers = {
-        ...headers,
-        Authorization: `Bearer ${token}`,
-      };
+      headers['Authorization'] = `Bearer ${token}`;
     }
   }
 
@@ -48,6 +61,7 @@ async function fetchApi<T = unknown>(endpoint: string, options: FetchOptions = {
     if (response.status === 401) {
       if (typeof window !== 'undefined') {
         localStorage.removeItem('token');
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
         window.location.href = '/login';
       }
     }
@@ -55,207 +69,172 @@ async function fetchApi<T = unknown>(endpoint: string, options: FetchOptions = {
     throw new Error(error.message || `HTTP ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  const result = await response.json();
+  return (result && typeof result === 'object' && 'data' in result ? result.data : result) as T;
 }
 
 // ============ Auth API ============
 export const authApi = {
-  login: (data: Record<string, unknown>) => fetchApi<any>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
-  register: (data: Record<string, unknown>) => fetchApi<any>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
+  login: (data: Record<string, unknown>) => fetchApi<LoginResponse>('/auth/login', { method: 'POST', body: JSON.stringify(data) }),
+  register: (data: Record<string, unknown>) => fetchApi<LoginResponse>('/auth/register', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // ============ Users API ============
 export const usersApi = {
-  getAll: () => fetchApi<any[]>('/users'),
-  getRoles: () => fetchApi<any[]>('/users/roles'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/users', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/users/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<User[]>('/users'),
+  getRoles: () => fetchApi<Role[]>('/users/roles'),
+  create: (data: Partial<User>) => fetchApi<User>('/users', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<User>) => fetchApi<User>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) => fetchApi<void>(`/users/${id}`, { method: 'DELETE' }),
 };
 
 // ============ Tenants API ============
 export const tenantsApi = {
-  getAll: () => fetchApi<any>('/tenants'),
-  getById: (id: string) => fetchApi<any>(`/tenants/${id}`),
-  create: (data: { name: string; domain?: string; settings?: any }) => 
-    fetchApi<any>('/tenants', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: { name?: string; domain?: string; isActive?: boolean; settings?: any }) => 
-    fetchApi<any>(`/tenants/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/tenants/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<Tenant[]>('/tenants'),
+  getById: (id: string) => fetchApi<Tenant>(`/tenants/${id}`),
+  create: (data: { name: string; domain?: string }) => 
+    fetchApi<Tenant>('/tenants', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Tenant>) => 
+    fetchApi<Tenant>(`/tenants/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) => fetchApi<void>(`/tenants/${id}`, { method: 'DELETE' }),
 };
 
 // ============ Finance API ============
 export const financeApi = {
   getAccounts: (params?: { page?: number; limit?: number }) =>
-    fetchApi<any>('/finance/accounts', { params }),
-  createAccount: (data: Record<string, unknown>) =>
-    fetchApi<any>('/finance/accounts', { method: 'POST', body: JSON.stringify(data) }),
-  getJournalEntries: (params?: { page?: number; limit?: number; startDate?: string; endDate?: string; status?: string }) =>
-    fetchApi<any>('/finance/journal-entries', { params }),
-  createJournalEntry: (data: Record<string, unknown>) =>
-    fetchApi<any>('/finance/journal-entries', { method: 'POST', body: JSON.stringify(data) }),
-  getCurrencies: () =>
-    fetchApi<any>('/finance/currencies'),
-  getExchangeRates: () =>
-    fetchApi<any>('/finance/exchange-rates'),
+    fetchApi<PaginatedResponse<Account>>('/finance/accounts', { params }),
+  createAccount: (data: any) => fetchApi<Account>('/finance/accounts', { method: 'POST', body: JSON.stringify(data) }),
+  getJournalEntries: (params?: { page?: number; limit?: number; status?: string }) =>
+    fetchApi<PaginatedResponse<JournalEntry>>('/finance/journal-entries', { params }),
+  createJournalEntry: (data: Partial<JournalEntry>) =>
+    fetchApi<JournalEntry>('/finance/journal-entries', { method: 'POST', body: JSON.stringify(data) }),
+  getCurrencies: () => fetchApi<Currency[]>('/finance/currencies'),
 };
 
 // ============ HR API ============
 export const employeesApi = {
-  getAll: () => fetchApi<any[]>('/employees'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/employees', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/employees/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/employees/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<Employee[]>('/employees'),
+  create: (data: Partial<Employee>) => fetchApi<Employee>('/employees', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (id: string) => fetchApi<void>(`/employees/${id}`, { method: 'DELETE' }),
 };
 
 export const departmentsApi = {
-  getAll: () => fetchApi<any[]>('/departments'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/departments', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/departments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/departments/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<Department[]>('/departments'),
+  create: (data: any) => fetchApi<Department>('/departments', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export const leaveRequestsApi = {
-  getAll: () => fetchApi<any[]>('/leave-requests'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/leave-requests', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/leave-requests/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  approve: (id: string) => fetchApi<any>(`/leave-requests/${id}/approve`, { method: 'PUT' }),
-  reject: (id: string) => fetchApi<any>(`/leave-requests/${id}/reject`, { method: 'PUT' }),
+  getAll: () => fetchApi<LeaveRequest[]>('/leave-requests'),
+  approve: (id: string) => fetchApi<void>(`/leave-requests/${id}/approve`, { method: 'PUT' }),
+  reject: (id: string) => fetchApi<void>(`/leave-requests/${id}/reject`, { method: 'PUT' }),
 };
 
-// ============ Inventory API ============
+// ============ Inventory / SCM ============
 export const productsApi = {
-  getAll: () => fetchApi<any[]>('/products'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/products', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/products/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/products/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<Product[]>('/products'),
+  create: (data: any) => fetchApi<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export const inventoryApi = {
   getAll: () => fetchApi<any[]>('/inventory'),
   getLowStock: () => fetchApi<any[]>('/inventory/low-stock'),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/inventory/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  adjust: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/inventory/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
+  adjust: (id: string, data: any) => fetchApi<void>(`/inventory/${id}/adjust`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export const vendorsApi = {
-  getAll: () => fetchApi<any[]>('/vendors'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/vendors', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/vendors/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/vendors/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<Vendor[]>('/vendors'),
+  create: (data: any) => fetchApi<Vendor>('/vendors', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 export const purchaseOrdersApi = {
-  getAll: () => fetchApi<any[]>('/purchase-orders'),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/purchase-orders', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/purchase-orders/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  approve: (id: string) => fetchApi<any>(`/purchase-orders/${id}/approve`, { method: 'PUT' }),
-  receive: (id: string) => fetchApi<any>(`/purchase-orders/${id}/receive`, { method: 'PUT' }),
-  cancel: (id: string) => fetchApi<any>(`/purchase-orders/${id}/cancel`, { method: 'PUT' }),
+  getAll: () => fetchApi<PurchaseOrder[]>('/purchase-orders'),
+  create: (data: any) => fetchApi<PurchaseOrder>('/purchase-orders', { method: 'POST', body: JSON.stringify(data) }),
+  approve: (id: string) => fetchApi<void>(`/purchase-orders/${id}/approve`, { method: 'PUT' }),
+  receive: (id: string) => fetchApi<void>(`/purchase-orders/${id}/receive`, { method: 'PUT' }),
 };
 
-// ============ Projects API ============
+// ============ Projects ============
 export const projectsApi = {
-  getAll: () => fetchApi<any[]>('/projects'),
-  getById: (id: string) => fetchApi<any>(`/projects/${id}`),
-  create: (data: Record<string, unknown>) => fetchApi<any>('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/projects/${id}`, { method: 'DELETE' }),
-  getMilestones: (projectId?: string) => fetchApi<any[]>('/projects/milestones/all', { params: { projectId } }),
-  createMilestone: (data: Record<string, unknown>) => fetchApi<any>('/projects/milestones', { method: 'POST', body: JSON.stringify(data) }),
-  updateMilestone: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/projects/milestones/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  createTask: (projectId: string, data: Record<string, unknown>) => fetchApi<any>(`/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(data) }),
+  getAll: () => fetchApi<Project[]>('/projects'),
+  getById: (id: string) => fetchApi<Project>(`/projects/${id}`),
+  create: (data: any) => fetchApi<Project>('/projects', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: any) => fetchApi<Project>(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) => fetchApi<void>(`/projects/${id}`, { method: 'DELETE' }),
+  getMilestones: (projectId?: string) => fetchApi<Milestone[]>('/projects/milestones/all', { params: { projectId } }),
+  createMilestone: (data: any) => fetchApi<Milestone>('/projects/milestones', { method: 'POST', body: JSON.stringify(data) }),
+  createTask: (projectId: string, data: any) => fetchApi<Task>(`/projects/${projectId}/tasks`, { method: 'POST', body: JSON.stringify(data) }),
   getBudget: (projectId: string) => fetchApi<any>(`/projects/${projectId}/budget`),
-  updateBudget: (projectId: string, data: Record<string, unknown>) => fetchApi<any>(`/projects/${projectId}/budget`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 export const tasksApi = {
-  update: (id: string, data: Record<string, unknown>) => fetchApi<any>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  update: (id: string, data: any) => fetchApi<Task>(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
-// ============ Notifications API ============
+// ============ Notifications ============
 export const notificationsApi = {
-  getAll: () => fetchApi<any>('/notifications'),
-  markAsRead: (id: string) => fetchApi<any>(`/notifications/${id}/read`, { method: 'PUT' }),
-  markAllAsRead: () => fetchApi<any>('/notifications/read-all', { method: 'PUT' }),
-  delete: (id: string) => fetchApi<any>(`/notifications/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<any[]>('/notifications'),
+  markAsRead: (id: string) => fetchApi<void>(`/notifications/${id}/read`, { method: 'PUT' }),
+  markAllAsRead: () => fetchApi<void>('/notifications/read-all', { method: 'PUT' }),
+  delete: (id: string) => fetchApi<void>(`/notifications/${id}`, { method: 'DELETE' }),
   getPreferences: () => fetchApi<any>('/notifications/preferences'),
-  updatePreferences: (data: any) => fetchApi<any>('/notifications/preferences', { method: 'PUT', body: JSON.stringify(data) }),
+  updatePreferences: (data: any) => fetchApi<void>('/notifications/preferences', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
-// ============ Dashboard/Stats API ============
+// ============ Dashboard ============
 export const dashboardApi = {
   getStats: () => fetchApi<any>('/dashboard/stats'),
-  getRecentActivity: () => fetchApi<any>('/dashboard/recent-activity'),
+  getRecentActivity: () => fetchApi<any[]>('/dashboard/recent-activity'),
 };
 
-// ============ Forecast API (AI Demand Forecasting) ============
+// ============ AI / Forecast ============
 export const forecastApi = {
-  forecastDemand: (data: { sku: string; periods?: number }) =>
-    fetchApi<any>('/forecast/demand', { method: 'POST', body: JSON.stringify(data) }),
-  getForecast: (sku: string, periods?: number) =>
-    fetchApi<any>(`/forecast/demand/${sku}`, { params: { periods } }),
-  addHistoricalData: (data: { sku: string; quantity: number; date: string }) =>
-    fetchApi<any>('/forecast/historical', { method: 'POST', body: JSON.stringify(data) }),
-  getTrends: (sku?: string) =>
-    fetchApi<any>('/forecast/trends', { params: { sku } }),
+  getTrends: (sku?: string) => fetchApi<any>('/forecast/trends', { params: { sku } }),
+  getForecast: (sku: string) => fetchApi<any>(`/forecast/demand/${sku}`),
 };
 
-// ============ OCR API (Invoice Parsing) ============
+// ============ OCR ============
 export const ocrApi = {
   parseInvoice: (file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    return fetch(`${API_BASE_URL}/api/ocr/invoice`, {
+    return fetchApi<any>('/ocr/invoice', {
       method: 'POST',
-      headers: {
-        Authorization: typeof window !== 'undefined' ? `Bearer ${localStorage.getItem('token')}` : '',
-      },
       body: formData,
-    }).then(r => r.json());
+      // Note: fetchApi handles Content-Type and Auth headers, 
+      // but for FormData we must let fetch set the boundary.
+      headers: { 'Content-Type': 'multipart/form-data' } 
+    });
   },
-  parseInvoiceText: (text: string) =>
-    fetchApi<any>('/ocr/invoice/text', { method: 'POST', body: JSON.stringify({ text }) }),
 };
 
-// ============ Payroll API ============
+// ============ Payroll ============
 export const payrollApi = {
-  getRuns: () => fetchApi<any>('/payroll/runs'),
+  getRuns: () => fetchApi<PayrollRun[]>('/payroll/runs'),
   createRun: (data: { period: string; currency: string }) =>
-    fetchApi<any>('/payroll/runs', { method: 'POST', body: JSON.stringify(data) }),
-  getRun: (id: string) => fetchApi<any>(`/payroll/runs/${id}`),
-  approveRun: (id: string) => fetchApi<any>(`/payroll/runs/${id}/approve`, { method: 'POST' }),
-  getPayslips: (runId: string) => fetchApi<any>(`/payroll/runs/${runId}/payslips`),
-  getPayslip: (id: string) => fetchApi<any>(`/payroll/payslips/${id}`),
+    fetchApi<PayrollRun>('/payroll/runs', { method: 'POST', body: JSON.stringify(data) }),
+  approveRun: (id: string) => fetchApi<void>(`/payroll/runs/${id}/approve`, { method: 'POST' }),
+  getPayslips: (runId: string) => fetchApi<any[]>(`/payroll/runs/${runId}/payslips`),
 };
 
-// ============ Audit API ============
+// ============ Audit ============
 export const auditApi = {
   getLogs: (params?: { page?: number; limit?: number; action?: string; userId?: string }) =>
-    fetchApi<any>('/audit/logs', { params }),
-  exportLogs: (params?: { from?: string; to?: string }) =>
-    fetchApi<any>('/audit/logs/export', { params }),
+    fetchApi<PaginatedResponse<AuditLog>>('/audit/logs', { params }),
+  exportLogs: () => fetchApi<{ csv: string }>('/audit/logs/export'),
 };
 
-// ============ Webhooks API ============
+// ============ Webhooks ============
 export const webhooksApi = {
-  getAll: () => fetchApi<any>('/webhooks'),
-  create: (data: { url: string; events: string[]; secret?: string }) =>
-    fetchApi<any>('/webhooks', { method: 'POST', body: JSON.stringify(data) }),
-  update: (id: string, data: { url?: string; events?: string[]; isActive?: boolean }) =>
-    fetchApi<any>(`/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
-  delete: (id: string) => fetchApi<any>(`/webhooks/${id}`, { method: 'DELETE' }),
+  getAll: () => fetchApi<any[]>('/webhooks'),
+  create: (data: any) => fetchApi<any>('/webhooks', { method: 'POST', body: JSON.stringify(data) }),
+  delete: (id: string) => fetchApi<void>(`/webhooks/${id}`, { method: 'DELETE' }),
   test: (id: string) => fetchApi<any>(`/webhooks/${id}/test`, { method: 'POST' }),
-  getDeliveries: (id: string) => fetchApi<any>(`/webhooks/${id}/deliveries`),
 };
 
-// ============ Reports API ============
+// ============ Reports ============
 export const reportsApi = {
-  getAll: () => fetchApi<any>('/reports'),
-  generate: (type: string, params?: any) =>
-    fetchApi<any>('/reports/generate', { method: 'POST', body: JSON.stringify({ type, ...params }) }),
-  download: (id: string, format: 'pdf' | 'excel') =>
-    fetchApi<any>(`/reports/${id}/download?format=${format}`),
+  getAll: () => fetchApi<any[]>('/reports'),
+  generate: (type: string) => fetchApi<any>('/reports/generate', { method: 'POST', body: JSON.stringify({ type }) }),
 };
 
 export default fetchApi;

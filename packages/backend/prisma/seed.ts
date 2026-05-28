@@ -52,6 +52,21 @@ async function main() {
 
   console.log('Created tenant:', tenant.name);
 
+  // Initialize sequences
+  await prisma.sequence.upsert({
+    where: { tenantId_name: { tenantId: tenant.id, name: 'audit_log' } },
+    update: {},
+    create: { tenantId: tenant.id, name: 'audit_log', value: 0 },
+  });
+
+  await prisma.sequence.upsert({
+    where: { tenantId_name: { tenantId: tenant.id, name: 'journal_entry' } },
+    update: {},
+    create: { tenantId: tenant.id, name: 'journal_entry', value: 0 },
+  });
+
+  console.log('Initialized sequences for tenant:', tenant.name);
+
   // Create admin user
   const passwordHash = await bcrypt.hash('admin123', 10);
   // Check if user exists, if not create
@@ -74,6 +89,34 @@ async function main() {
   }
 
   console.log('Created admin user: admin@amdox.com');
+
+  // Create default Chart of Accounts
+  console.log('Creating default Chart of Accounts...');
+  const accounts = [
+    { code: '1000', name: 'Cash in Bank', type: 'ASSET' },
+    { code: '1100', name: 'Accounts Receivable', type: 'ASSET' },
+    { code: '1200', name: 'Inventory', type: 'ASSET' },
+    { code: '2000', name: 'Accounts Payable', type: 'LIABILITY' },
+    { code: '3000', name: 'Retained Earnings', type: 'EQUITY' },
+    { code: '4000', name: 'Sales Revenue', type: 'REVENUE' },
+    { code: '5000', name: 'Cost of Goods Sold', type: 'EXPENSE' },
+    { code: '5100', name: 'Office Supplies', type: 'EXPENSE' },
+  ];
+
+  for (const acc of accounts) {
+    await prisma.account.upsert({
+      where: { code_tenantId: { code: acc.code, tenantId: tenant.id } },
+      update: {},
+      create: {
+        ...acc,
+        type: acc.type as any,
+        tenantId: tenant.id,
+      },
+    });
+  }
+
+  console.log(`Created ${accounts.length} default accounts.`);
+
   console.log('\n✅ Seed complete!');
   console.log('Login: admin@amdox.com / admin123');
 }

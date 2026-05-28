@@ -1,28 +1,29 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { ReportStatus } from '@prisma/client';
+import { tenantContextStorage } from '../common/tenant-context';
 
 @Injectable()
 export class ReportsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(tenantId: string) {
+  async findAll() {
     const reports = await this.prisma.report.findMany({
-      where: { tenantId },
       orderBy: { createdAt: 'desc' },
     });
     return { data: reports };
   }
 
-  async generate(tenantId: string, type: string) {
+  async generate(type: string) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     const report = await this.prisma.report.create({
       data: {
         name: `${type.replace('_', ' ').toUpperCase()} Report`,
         type: type.includes('loss') || type.includes('balance') ? 'Financial' : 'Operations',
         schedule: 'adhoc',
         status: ReportStatus.GENERATING,
-        tenantId,
         lastRun: new Date(),
+        tenant: { connect: { id: tenantId } },
       },
     });
 
@@ -45,15 +46,15 @@ export class ReportsService {
     });
   }
 
-  async findOne(tenantId: string, id: string) {
+  async findOne(id: string) {
     const report = await this.prisma.report.findUnique({
-      where: { id, tenantId },
+      where: { id },
     });
     if (!report) throw new NotFoundException('Report not found');
     return report;
   }
 
-  async generateDownload(tenantId: string, id: string, format: string) {
+  async generateDownload(id: string, format: string) {
     return { downloadUrl: `/api/reports/${id}/download/${format}` };
   }
 }

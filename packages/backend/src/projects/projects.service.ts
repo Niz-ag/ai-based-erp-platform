@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
 import { Prisma } from '@prisma/client';
+import { tenantContextStorage } from '../common/tenant-context';
 
 export interface CreateProjectDto {
   name: string;
@@ -74,7 +75,6 @@ export class ProjectsService {
   async findAllProjects(currentUser: CurrentUserData) {
     return this.prisma.project.findMany({
       where: {
-        tenantId: currentUser.tenantId,
         isActive: true,
       },
       include: {
@@ -92,20 +92,21 @@ export class ProjectsService {
 
   async createProject(data: CreateProjectDto, currentUser: CurrentUserData) {
     const { plannedAmount, currency, ...projectData } = data;
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
 
     return this.prisma.project.create({
       data: {
         ...projectData,
         startDate: projectData.startDate ? new Date(projectData.startDate) : undefined,
         endDate: projectData.endDate ? new Date(projectData.endDate) : undefined,
-        tenant: { connect: { id: currentUser.tenantId } },
         createdBy: { connect: { id: currentUser.id } },
+        tenant: { connect: { id: tenantId } },
         budget: plannedAmount
           ? {
               create: {
                 plannedAmount: new Prisma.Decimal(plannedAmount || 0),
                 currency: currency || 'USD',
-                tenant: { connect: { id: currentUser.tenantId } },
+                tenant: { connect: { id: tenantId } },
               },
             }
           : undefined,
@@ -120,7 +121,6 @@ export class ProjectsService {
     const project = await this.prisma.project.findFirst({
       where: {
         id,
-        tenantId: currentUser.tenantId,
       },
       include: {
         budget: true,
@@ -205,7 +205,7 @@ export class ProjectsService {
 
     // Verify project exists
     await this.prisma.project.findFirst({
-      where: { id: projectId, tenantId: currentUser.tenantId },
+      where: { id: projectId },
     });
 
     // Verify prerequisite tasks exist and belong to same project
@@ -214,13 +214,14 @@ export class ProjectsService {
         where: {
           id: { in: prerequisiteTaskIds },
           projectId,
-          tenantId: currentUser.tenantId,
         },
       });
       if (existingTasks.length !== prerequisiteTaskIds.length) {
         throw new NotFoundException('One or more prerequisite tasks not found');
       }
     }
+
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
 
     const task = await this.prisma.task.create({
       data: {
@@ -231,8 +232,8 @@ export class ProjectsService {
           ? new Prisma.Decimal(createData.estimatedHours)
           : undefined,
         project: { connect: { id: projectId } },
-        tenant: { connect: { id: currentUser.tenantId } },
         assignee: assigneeId ? { connect: { id: assigneeId } } : undefined,
+        tenant: { connect: { id: tenantId } },
       },
       include: {
         assignee: {
@@ -263,7 +264,6 @@ export class ProjectsService {
     const task = await this.prisma.task.findFirst({
       where: {
         id,
-        tenantId: currentUser.tenantId,
       },
       include: {
         assignee: {
@@ -360,7 +360,6 @@ export class ProjectsService {
   async findAllMilestones(currentUser: CurrentUserData, projectId?: string) {
     return this.prisma.milestone.findMany({
       where: {
-        tenantId: currentUser.tenantId,
         ...(projectId ? { projectId } : {}),
       },
       include: {
@@ -384,15 +383,17 @@ export class ProjectsService {
 
     // Verify project exists
     await this.prisma.project.findFirst({
-      where: { id: projectId, tenantId: currentUser.tenantId },
+      where: { id: projectId },
     });
+
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
 
     return this.prisma.milestone.create({
       data: {
         ...milestoneData,
         dueDate: milestoneData.dueDate ? new Date(milestoneData.dueDate) : undefined,
         project: { connect: { id: projectId } },
-        tenant: { connect: { id: currentUser.tenantId } },
+        tenant: { connect: { id: tenantId } },
       },
       include: {
         project: {
@@ -413,7 +414,6 @@ export class ProjectsService {
     const milestone = await this.prisma.milestone.findFirst({
       where: {
         id,
-        tenantId: currentUser.tenantId,
       },
     });
 
@@ -452,7 +452,6 @@ export class ProjectsService {
     const project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
-        tenantId: currentUser.tenantId,
       },
       include: {
         budget: true,
@@ -503,7 +502,6 @@ export class ProjectsService {
     const project = await this.prisma.project.findFirst({
       where: {
         id: projectId,
-        tenantId: currentUser.tenantId,
       },
       include: {
         budget: true,
@@ -537,6 +535,7 @@ export class ProjectsService {
         },
       });
     } else {
+      const tenantId = tenantContextStorage.getStore()?.tenantId;
       // Create budget if it doesn't exist
       return this.prisma.projectBudget.create({
         data: {
@@ -545,7 +544,7 @@ export class ProjectsService {
           currency: 'USD',
           notes: data.notes,
           project: { connect: { id: projectId } },
-          tenant: { connect: { id: currentUser.tenantId } },
+          tenant: { connect: { id: tenantId } },
         },
         include: {
           project: {

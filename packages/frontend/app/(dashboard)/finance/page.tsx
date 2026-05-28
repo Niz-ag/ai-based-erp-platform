@@ -397,7 +397,7 @@ export default function FinancePage() {
                       </td>
                     </tr>
                   ) : (accountsData?.data?.length ?? 0) > 0 ? (
-                    accountsData.data.map((account: any) => (
+                    accountsData?.data.map((account: any) => (
                       <tr key={account.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-sm font-mono">{account.code}</td>
                         <td className="px-4 py-3 text-sm font-medium">{account.name}</td>
@@ -467,7 +467,7 @@ export default function FinancePage() {
                       </td>
                     </tr>
                   ) : (journalData?.data?.length ?? 0) > 0 ? (
-                    journalData.data.map((entry: any) => (
+                    journalData?.data.map((entry: any) => (
                       <React.Fragment key={entry.id}>
                         <tr 
                           className="hover:bg-gray-50 cursor-pointer"
@@ -545,8 +545,8 @@ export default function FinancePage() {
               <div className="col-span-3 text-center py-8 text-muted-foreground">
                 <Loader2 className="h-8 w-8 animate-spin mx-auto" />
               </div>
-            ) : (currenciesData?.data?.length ?? 0) > 0 ? (
-              currenciesData.data.map((currency: any) => (
+            ) : (currenciesData?.length ?? 0) > 0 ? (
+              currenciesData?.map((currency: any) => (
                 <div key={currency.id} className="rounded-lg border bg-white p-6 shadow-sm">
                   <div className="flex items-center justify-between">
                     <div>

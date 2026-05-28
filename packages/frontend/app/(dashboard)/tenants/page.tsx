@@ -40,7 +40,7 @@ export default function TenantsPage() {
   };
 
   // Only superadmin can add tenants
-  const canAddTenant = user?.role === 'superadmin';
+  const canAddTenant = user?.role?.name?.toLowerCase() === 'superadmin';
 
   useEffect(() => {
     const fetchTenants = async () => {

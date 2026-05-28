@@ -25,7 +25,7 @@ export default function AuditLogsPage() {
   const [page, setPage] = useState(1);
   const [actionFilter, setActionFilter] = useState("");
 
-  const canExport = user?.role === 'superadmin' || user?.role === 'admin';
+  const canExport = user?.role?.name?.toLowerCase() === 'superadmin' || user?.role?.name?.toLowerCase() === 'admin';
 
   const { data: logsData, isLoading, refetch } = useQuery({
     queryKey: ["audit-logs", page, actionFilter],
@@ -129,7 +129,7 @@ export default function AuditLogsPage() {
             </div>
           )}
 
-          {logsData?.total > page * 20 && (
+          {(logsData?.pagination?.total ?? 0) > page * 20 && (
             <div className="flex justify-center mt-4">
               <Button variant="outline" onClick={() => setPage(p => p + 1)}>
                 Load More

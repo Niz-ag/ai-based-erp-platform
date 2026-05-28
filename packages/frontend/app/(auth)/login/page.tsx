@@ -45,6 +45,7 @@ function LoginForm() {
 
     if (tokenFromUrl) {
       localStorage.setItem("token", tokenFromUrl);
+      document.cookie = `token=${tokenFromUrl}; path=/; max-age=86400; SameSite=Lax`;
       // Fetch user data would happen here or in AuthProvider
       // For now we just refresh to let AuthProvider handle it
       window.location.href = redirect;
@@ -52,7 +53,7 @@ function LoginForm() {
   }, [isAuthenticated, tokenFromUrl, router, redirect]);
 
   const handleSSOLogin = () => {
-    const ssoUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'}/api/auth/sso/login`;
+    const ssoUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api/v1'}/auth/sso/login`;
     window.location.href = ssoUrl;
   };
 
@@ -66,20 +67,22 @@ function LoginForm() {
         return;
       }
 
-      localStorage.setItem("token", response.access_token);
+      localStorage.setItem("token", response.access_token || response.token);
+      
+      // Set cookie for middleware
+      document.cookie = `token=${response.access_token || response.token}; path=/; max-age=86400; SameSite=Lax`;
 
       login({
-        id: response.user.id,
-        email: response.user.email,
-        firstName: response.user.firstName,
-        lastName: response.user.lastName,
-        name: `${response.user.firstName || ""} ${response.user.lastName || ""}`.trim() || response.user.email,
-        role: response.user.role.toLowerCase() as any,
-        tenant: response.user.tenant,
+        ...response.user,
+        name: `${response.user?.firstName || ""} ${response.user?.lastName || ""}`.trim() || response.user?.email,
       });
 
       toast.success("Welcome back!", { description: "Login successful" });
-      router.push(redirect);
+      
+      // AI MANDATE: Hard Redirection
+      // Using window.location.href instead of router.push to ensure 
+      // the Service Worker and hydration state are completely reset.
+      window.location.href = redirect;
     } catch (err: any) {
       toast.error("Login failed", { description: err.message || "Invalid credentials" });
       setError("root", { message: err.message || "Login failed" });

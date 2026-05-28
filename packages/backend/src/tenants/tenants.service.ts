@@ -55,11 +55,23 @@ export class TenantsService {
   }
 
   async create(data: Prisma.TenantCreateInput) {
-    return this.prisma.tenant.create({
-      data: {
-        name: data.name,
-        domain: data.domain,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const tenant = await tx.tenant.create({
+        data: {
+          name: data.name,
+          domain: data.domain,
+        },
+      });
+
+      // Initialize sequences for the new tenant
+      await tx.sequence.createMany({
+        data: [
+          { tenantId: tenant.id, name: 'audit_log', value: 0 },
+          { tenantId: tenant.id, name: 'journal_entry', value: 0 },
+        ],
+      });
+
+      return tenant;
     });
   }
 

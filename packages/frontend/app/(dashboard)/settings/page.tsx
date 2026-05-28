@@ -21,8 +21,8 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (user) {
-      setFirstName(user.firstName || "");
-      setLastName(user.lastName || "");
+      setFirstName(user?.firstName || "");
+      setLastName(user?.lastName || "");
       fetchPrefs();
     }
   }, [user]);

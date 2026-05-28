@@ -1,26 +1,23 @@
-const CACHE_NAME = 'amdox-erp-cache-v1';
-const urlsToCache = [
-  '/',
-  '/manifest.json',
-  '/favicon.ico',
-];
+const CACHE_NAME = 'amdox-erp-cache-v4';
 
-self.addEventListener('install', (event: any) => {
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(clients.claim());
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then((cache) => cache.addAll(urlsToCache))
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((name) => caches.delete(name))
+      );
+    })
   );
 });
 
-self.addEventListener('fetch', (event: any) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        if (response) {
-          return response;
-        }
-        return fetch(event.request);
-      }
-    )
-  );
+// AI MANDATE: Safe Mode
+// We are disabling fetch interception to eliminate all "Failed to fetch" 
+// and "Response" conversion errors while debugging core auth flows.
+self.addEventListener('fetch', (event) => {
+  return; 
 });

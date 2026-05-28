@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
+import { tenantContextStorage } from '../common/tenant-context';
 
 @Injectable()
 export class InventoryService {
@@ -8,9 +9,6 @@ export class InventoryService {
 
   async findAll(currentUser: CurrentUserData) {
     return this.prisma.inventory.findMany({
-      where: {
-        tenantId: currentUser.tenantId,
-      },
       include: {
         product: {
           include: { vendor: true },
@@ -24,7 +22,6 @@ export class InventoryService {
     // Get all products with their inventory and check against reorder threshold
     const products = await this.prisma.product.findMany({
       where: {
-        tenantId: currentUser.tenantId,
         isActive: true,
       },
       include: {
@@ -54,7 +51,7 @@ export class InventoryService {
 
   async adjust(id: string, data: { quantity: number; notes?: string }, currentUser: CurrentUserData) {
     const inventory = await this.prisma.inventory.findUnique({
-      where: { id, tenantId: currentUser.tenantId },
+      where: { id },
     });
 
     if (!inventory) {
@@ -62,6 +59,7 @@ export class InventoryService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const tenantId = tenantContextStorage.getStore()?.tenantId;
       // Calculate adjustment quantity
       const adjustmentQty = data.quantity - inventory.quantity;
 
@@ -74,13 +72,13 @@ export class InventoryService {
       // Create transaction
       await tx.inventoryTransaction.create({
         data: {
-          productId: inventory.productId,
-          inventoryId: inventory.id,
+          product: { connect: { id: inventory.productId } },
+          inventory: { connect: { id: inventory.id } },
           quantity: adjustmentQty,
           type: 'ADJUSTMENT',
           notes: data.notes || 'Manual Adjustment',
-          tenantId: currentUser.tenantId,
-          createdById: currentUser.id,
+          createdBy: { connect: { id: currentUser.id } },
+          tenant: { connect: { id: tenantId } },
         },
       });
 

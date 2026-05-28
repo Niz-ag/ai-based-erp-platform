@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Body, Param, ParseUUIDPipe, UseGuards } from '@nestjs/common';
 import { LeaveRequestsService } from './leave-requests.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -40,6 +40,24 @@ export class LeaveRequestsController {
     @CurrentUser() currentUser: CurrentUserData,
   ) {
     return this.leaveRequestsService.create(createLeaveRequestDto, currentUser);
+  }
+
+  @Put(':id/approve')
+  @Roles('superadmin', 'admin', 'manager')
+  approve(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.leaveRequestsService.approve(id, currentUser);
+  }
+
+  @Put(':id/reject')
+  @Roles('superadmin', 'admin', 'manager')
+  reject(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.leaveRequestsService.reject(id, currentUser);
   }
 }
 

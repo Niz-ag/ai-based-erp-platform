@@ -14,11 +14,11 @@ export class DashboardService {
       purchaseOrderCount,
       accountCount,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { tenantId: currentUser.tenantId } }),
-      this.prisma.employee.count({ where: { tenantId: currentUser.tenantId, isActive: true } }),
-      this.prisma.project.count({ where: { tenantId: currentUser.tenantId, isActive: true } }),
-      this.prisma.purchaseOrder.count({ where: { tenantId: currentUser.tenantId } }),
-      this.prisma.account.count({ where: { tenantId: currentUser.tenantId, isActive: true } }),
+      this.prisma.user.count({ where: { } }),
+      this.prisma.employee.count({ where: { isActive: true } }),
+      this.prisma.project.count({ where: { isActive: true } }),
+      this.prisma.purchaseOrder.count({ }),
+      this.prisma.account.count({ where: { isActive: true } }),
     ]);
 
     return {
@@ -38,19 +38,16 @@ export class DashboardService {
       recentPO,
     ] = await Promise.all([
       this.prisma.user.findMany({
-        where: { tenantId: currentUser.tenantId },
         orderBy: { createdAt: 'desc' },
         take: 5,
         select: { id: true, email: true, createdAt: true },
       }),
       this.prisma.project.findMany({
-        where: { tenantId: currentUser.tenantId },
         orderBy: { createdAt: 'desc' },
         take: 5,
         select: { id: true, name: true, createdAt: true },
       }),
       this.prisma.purchaseOrder.findMany({
-        where: { tenantId: currentUser.tenantId },
         orderBy: { createdAt: 'desc' },
         take: 5,
         select: { id: true, orderNumber: true, createdAt: true, status: true },

@@ -4,6 +4,7 @@ import { CurrentUserData } from '../common/decorators/current-user.decorator';
 import { WebhooksService } from '../webhooks/webhooks.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { NotificationType } from '@prisma/client';
+import { tenantContextStorage } from '../common/tenant-context';
 
 @Injectable()
 export class PurchaseOrdersService {
@@ -15,9 +16,6 @@ export class PurchaseOrdersService {
 
   async findAll(currentUser: CurrentUserData) {
     return this.prisma.purchaseOrder.findMany({
-      where: {
-        tenantId: currentUser.tenantId,
-      },
       include: {
         vendor: true,
         lines: {
@@ -35,9 +33,7 @@ export class PurchaseOrdersService {
     lines: { productId: string; quantity: number; unitPrice: number }[];
   }, currentUser: CurrentUserData) {
     // Generate order number
-    const count = await this.prisma.purchaseOrder.count({
-      where: { tenantId: currentUser.tenantId },
-    });
+    const count = await this.prisma.purchaseOrder.count();
     const orderNumber = `PO-${Date.now()}-${count + 1}`;
 
     // Calculate total amount
@@ -46,6 +42,8 @@ export class PurchaseOrdersService {
       0,
     );
 
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
+
     return this.prisma.purchaseOrder.create({
       data: {
         orderNumber,
@@ -53,15 +51,15 @@ export class PurchaseOrdersService {
         expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
         notes: data.notes,
         totalAmount,
-        tenant: { connect: { id: currentUser.tenantId } },
         createdBy: { connect: { id: currentUser.id } },
+        tenant: { connect: { id: tenantId } },
         lines: {
           create: data.lines.map((line) => ({
             product: { connect: { id: line.productId } },
             quantity: line.quantity,
             unitPrice: line.unitPrice,
             totalPrice: line.quantity * line.unitPrice,
-            tenant: { connect: { id: currentUser.tenantId } },
+            tenant: { connect: { id: tenantId } },
           })),
         },
       },
@@ -76,7 +74,7 @@ export class PurchaseOrdersService {
 
   async approve(id: string, currentUser: CurrentUserData) {
     const order = await this.prisma.purchaseOrder.findUnique({
-      where: { id, tenantId: currentUser.tenantId },
+      where: { id },
     });
 
     if (!order) {
@@ -99,7 +97,7 @@ export class PurchaseOrdersService {
 
   async receive(id: string, currentUser: CurrentUserData) {
     const order = await this.prisma.purchaseOrder.findUnique({
-      where: { id, tenantId: currentUser.tenantId },
+      where: { id },
       include: {
         lines: { include: { product: true } },
       },
@@ -115,6 +113,7 @@ export class PurchaseOrdersService {
 
     // Start transaction to update inventory and create transactions
     return this.prisma.$transaction(async (tx) => {
+      const tenantId = tenantContextStorage.getStore()?.tenantId;
       // Update order status to RECEIVED
       const updatedOrder = await tx.purchaseOrder.update({
         where: { id },
@@ -135,9 +134,9 @@ export class PurchaseOrdersService {
         if (!inventory) {
           inventory = await tx.inventory.create({
             data: {
-              productId: line.productId,
+              product: { connect: { id: line.productId } },
               quantity: 0,
-              tenantId: currentUser.tenantId,
+              tenant: { connect: { id: tenantId } },
             },
           });
         }
@@ -152,37 +151,36 @@ export class PurchaseOrdersService {
         // Create inventory transaction
         await tx.inventoryTransaction.create({
           data: {
-            productId: line.productId,
-            inventoryId: inventory.id,
+            product: { connect: { id: line.productId } },
+            inventory: { connect: { id: inventory.id } },
             quantity: line.quantity,
             type: 'PURCHASE',
             reference: order.orderNumber,
             notes: `Items Received for PO: ${order.orderNumber}`,
-            tenantId: currentUser.tenantId,
-            createdById: currentUser.id,
+            createdBy: { connect: { id: currentUser.id } },
+            tenant: { connect: { id: tenantId } },
           },
         });
-        }
+      }
 
-        // Trigger Webhook
-        this.webhooksService.trigger('PO_RECEIVED', {
+      // Trigger Webhook
+      this.webhooksService.trigger('PO_RECEIVED', {
         orderId: updatedOrder.id,
         orderNumber: updatedOrder.orderNumber,
         vendor: updatedOrder.vendor.name,
         totalAmount: updatedOrder.totalAmount,
-        }, currentUser.tenantId).catch(console.error);
+      }, currentUser.tenantId).catch(console.error);
 
-        // Create Notification for the user who created the PO
-        this.notificationsService.createNotification(
+      // Create Notification for the user who created the PO
+      this.notificationsService.createNotification(
         updatedOrder.createdById,
-        currentUser.tenantId,
         NotificationType.SYSTEM,
         'Purchase Order Received',
         `PO ${updatedOrder.orderNumber} from ${updatedOrder.vendor.name} has been fully received.`,
         { orderId: updatedOrder.id }
-        ).catch(console.error);
+      ).catch(console.error);
 
-        return updatedOrder;
-        });
-        }
+      return updatedOrder;
+    });
+  }
         }

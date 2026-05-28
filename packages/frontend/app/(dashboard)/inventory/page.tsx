@@ -76,6 +76,7 @@ export default function InventoryPage() {
     unitPrice: 0,
     reorderThreshold: 10,
     vendorId: "",
+    initialQuantity: 0,
   });
 
   const [vendorForm, setVendorData] = useState({
@@ -121,6 +122,34 @@ export default function InventoryPage() {
 
   // Handlers
   const [selectedSku, setSelectedSku] = useState<string>("");
+
+  const seedHistoricalData = async () => {
+    if (!selectedSku) {
+      toast.error("Please select a SKU first");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      // Generate 24 months of random data
+      for (let i = 24; i >= 1; i--) {
+        const date = new Date();
+        date.setMonth(date.getMonth() - i);
+        const quantity = Math.floor(Math.random() * 100) + 50;
+        await forecastApi.addHistoricalData({
+          sku: selectedSku,
+          quantity,
+          date: date.toISOString().split('T')[0]
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["forecast", selectedSku] });
+      toast.success("Historical data seeded successfully!");
+    } catch (err) {
+      toast.error("Failed to seed data");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const { data: forecastData, isLoading: forecastLoading } = useQuery({
     queryKey: ["forecast", selectedSku],
@@ -249,9 +278,13 @@ export default function InventoryPage() {
               <input type="number" step="0.01" className="w-full px-3 py-2 border rounded-md" value={productForm.unitPrice} onChange={e => setProductData({...productForm, unitPrice: Number(e.target.value)})} />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Reorder Threshold</label>
-              <input type="number" className="w-full px-3 py-2 border rounded-md" value={productForm.reorderThreshold} onChange={e => setProductData({...productForm, reorderThreshold: Number(e.target.value)})} />
+              <label className="text-sm font-medium">Initial Quantity</label>
+              <input type="number" className="w-full px-3 py-2 border rounded-md" value={productForm.initialQuantity} onChange={e => setProductData({...productForm, initialQuantity: Number(e.target.value)})} />
             </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Reorder Threshold</label>
+            <input type="number" className="w-full px-3 py-2 border rounded-md" value={productForm.reorderThreshold} onChange={e => setProductData({...productForm, reorderThreshold: Number(e.target.value)})} />
           </div>
           <div className="flex justify-end gap-3 mt-6">
             <Button variant="ghost" type="button" onClick={() => setIsProductModalOpen(false)}>Cancel</Button>
@@ -505,19 +538,29 @@ export default function InventoryPage() {
                 </h3>
                 <p className="text-sm text-muted-foreground">AI-powered SKU-level demand prediction</p>
               </div>
-              <div className="w-full md:w-64">
-                <label className="text-xs font-medium text-gray-500 uppercase mb-1 block">Select Product SKU</label>
-                <select 
-                  className="w-full h-10 px-3 py-2 border rounded-md text-sm"
-                  value={selectedSku}
-                  onChange={(e) => setSelectedSku(e.target.value)}
-                >
-                  <option value="">Select SKU...</option>
-                  {productsData?.map((p: any) => (
-                    <option key={p.id} value={p.sku}>{p.sku} - {p.name}</option>
-                  ))}
-                </select>
-              </div>
+                <div className="flex items-center gap-2">
+                  <select 
+                    className="w-full h-10 px-3 py-2 border rounded-md text-sm"
+                    value={selectedSku}
+                    onChange={(e) => setSelectedSku(e.target.value)}
+                  >
+                    <option value="">Select SKU...</option>
+                    {productsData?.map((p: any) => (
+                      <option key={p.id} value={p.sku}>{p.sku} - {p.name}</option>
+                    ))}
+                  </select>
+                  {selectedSku && (
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={seedHistoricalData}
+                      disabled={isSubmitting}
+                      className="whitespace-nowrap"
+                    >
+                      {isSubmitting ? "Seeding..." : "Seed Training Data"}
+                    </Button>
+                  )}
+                </div>
             </div>
 
             {forecastLoading ? (

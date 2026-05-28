@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
 import { NotificationType } from '@prisma/client';
+import { tenantContextStorage } from '../common/tenant-context';
 
 // SSE client interface for Express response objects
 interface SseClient {
@@ -109,20 +110,20 @@ export class NotificationsService {
 
   async createNotification(
     userId: string,
-    tenantId: string,
     type: NotificationType,
     title: string,
     message: string,
     data?: any,
   ) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     const notification = await this.prisma.notification.create({
       data: {
-        userId,
-        tenantId,
+        user: { connect: { id: userId } },
         type,
         title,
         message,
         data: data || undefined,
+        tenant: { connect: { id: tenantId } },
       },
     });
 
@@ -139,9 +140,11 @@ export class NotificationsService {
     });
 
     if (!preferences) {
+      const tenantId = tenantContextStorage.getStore()?.tenantId;
       preferences = await this.prisma.notificationPreference.create({
         data: {
-          userId: currentUser.id,
+          user: { connect: { id: currentUser.id } },
+          tenant: { connect: { id: tenantId } },
         },
       });
     }
@@ -161,10 +164,12 @@ export class NotificationsService {
       notifyOnSystem?: boolean;
     },
   ) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     return this.prisma.notificationPreference.upsert({
       where: { userId: currentUser.id },
       create: {
-        userId: currentUser.id,
+        user: { connect: { id: currentUser.id } },
+        tenant: { connect: { id: tenantId } },
         ...data,
       },
       update: data,

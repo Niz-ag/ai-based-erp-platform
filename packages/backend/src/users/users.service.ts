@@ -15,10 +15,6 @@ export class UsersService {
       isActive: true,
     };
 
-    if (currentUser.role.name !== 'admin' && currentUser.role.name !== 'SuperAdmin') {
-      where.tenantId = currentUser.tenantId;
-    }
-
     return this.prisma.user.findMany({
       where,
       select: {
@@ -49,10 +45,6 @@ export class UsersService {
     const where: Prisma.UserWhereInput = {
       id,
     };
-
-    if (currentUser.role.name !== 'admin' && currentUser.role.name !== 'SuperAdmin') {
-      where.tenantId = currentUser.tenantId;
-    }
 
     const user = await this.prisma.user.findFirst({
       where,
@@ -85,11 +77,6 @@ export class UsersService {
     // Only admins can create users
     if (currentUser.role.name !== 'admin' && currentUser.role.name !== 'SuperAdmin') {
       throw new ForbiddenException('Only admins can create users');
-    }
-
-    // Ensure user is created in same tenant if not SuperAdmin
-    if (currentUser.role.name !== 'SuperAdmin' && !data.tenant) {
-      data.tenant = { connect: { id: currentUser.tenantId } };
     }
 
     // Hash password if provided

@@ -8,7 +8,9 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const port = process.env.BACKEND_PORT || 3000;
-  app.setGlobalPrefix('api');
+  app.setGlobalPrefix('api/v1', {
+    exclude: ['health/live', 'health/ready'],
+  });
 
   // Swagger Configuration
   const config = new DocumentBuilder()
@@ -19,10 +21,10 @@ async function bootstrap() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+  SwaggerModule.setup('api-docs', app, document);
 
   app.enableCors({
-    origin: ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:5000'],
+    origin: true, // Allow all origins for the pilot/testing phase
     credentials: true,
   });
 

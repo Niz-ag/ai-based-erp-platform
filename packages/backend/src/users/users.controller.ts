@@ -60,7 +60,6 @@ export class UsersController {
         firstName: createUserDto.firstName,
         lastName: createUserDto.lastName,
         role: { connect: { id: createUserDto.roleId } },
-        tenant: { connect: { id: currentUser.tenantId } },
       } as any,
       currentUser,
     );

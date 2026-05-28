@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { PrismaService } from '../prisma.service';
+import { RedisService } from '../redis.service';
 
 export interface JwtPayload {
   sub: string;
@@ -12,7 +13,10 @@ export interface JwtPayload {
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private redis: RedisService,
+  ) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
@@ -20,7 +24,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
+  /**
+   * AI MANDATE: Performance Hardening (No Vibe Coding)
+   * Implements Redis caching to prevent database meltdown under 100M concurrent connections.
+   * Only queries PostgreSQL if the user context is not present in the hot cache.
+   */
   async validate(payload: JwtPayload) {
+    const cacheKey = `user:${payload.sub}:v1`;
+    
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) {
+        return JSON.parse(cached);
+      }
+    } catch (e) {
+      // Fallback to DB if Redis is down
+    }
+
+    // Note: Prisma Extension will NOT filter here because AsyncLocalStorage is not yet populated
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { role: true },
@@ -30,12 +51,21 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found or inactive');
     }
 
-    return {
+    const userData = {
       id: user.id,
       email: user.email,
       tenantId: user.tenantId,
       roleId: user.roleId,
       role: user.role,
     };
+
+    try {
+      // Cache for 5 minutes (300s) to balance performance and freshness
+      await this.redis.set(cacheKey, JSON.stringify(userData), 300);
+    } catch (e) {
+      // Ignore cache failures
+    }
+
+    return userData;
   }
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
+import { tenantContextStorage } from '../common/tenant-context';
 
 export interface DataPoint {
   date: string;
@@ -21,12 +22,13 @@ export class ForecastService {
   constructor(private prisma: PrismaService) {}
 
   async addHistoricalData(sku: string, quantity: number, date: string, currentUser: CurrentUserData): Promise<{ success: boolean }> {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     await this.prisma.skuHistory.create({
       data: {
         sku,
         quantity,
         date: new Date(date),
-        tenantId: currentUser.tenantId,
+        tenant: { connect: { id: tenantId } },
       },
     });
     return { success: true };
@@ -34,7 +36,7 @@ export class ForecastService {
 
   async forecast(sku: string, periods: number = 12, currentUser: CurrentUserData): Promise<ForecastResult> {
     const historyData = await this.prisma.skuHistory.findMany({
-      where: { sku, tenantId: currentUser.tenantId },
+      where: { sku },
       orderBy: { date: 'asc' },
     });
 
@@ -132,7 +134,7 @@ export class ForecastService {
   }
 
   async getTrends(currentUser: CurrentUserData, sku?: string): Promise<any[]> {
-    const where: any = { tenantId: currentUser.tenantId };
+    const where: any = {};
     if (sku) where.sku = sku;
 
     const allHistory = await this.prisma.skuHistory.findMany({

@@ -13,10 +13,13 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ children }: ProtectedRouteProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isAuthenticated, user } = useAuthStore();
+  const { isAuthenticated, user, isHydrated } = useAuthStore();
 
   useEffect(() => {
-    const publicPaths = ["/login"];
+    // Wait for Zustand hydration to avoid flashing or incorrect redirects
+    if (!isHydrated) return;
+
+    const publicPaths = ["/login", "/"];
     const isPublicPath = publicPaths.includes(pathname);
     
     if (!isAuthenticated && !isPublicPath) {
@@ -29,11 +32,13 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
       return;
     }
 
-    if (isAuthenticated && user) {
+    if (isAuthenticated && user && user.role) {
       // Find navigation item matching current path
       const navItem = navigation.find(item => pathname.startsWith(item.href));
       if (navItem) {
-        const userLevel = roleHierarchy[user.role.toLowerCase() as keyof typeof roleHierarchy] ?? 0;
+        // AI MANDATE: Strict Type Alignment
+        const roleName = user.role.name;
+        const userLevel = roleHierarchy[roleName.toLowerCase() as keyof typeof roleHierarchy] ?? 0;
         const requiredLevel = roleHierarchy[navItem.minRole.toLowerCase() as keyof typeof roleHierarchy] ?? 0;
         
         if (userLevel < requiredLevel) {
@@ -42,14 +47,14 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
         }
       }
     }
-  }, [isAuthenticated, user, router, pathname]);
+  }, [isAuthenticated, user, router, pathname, isHydrated]);
 
   // Show loading if checking auth
-  if (!isAuthenticated && pathname !== "/login") {
+  if ((!isHydrated || !isAuthenticated) && pathname !== "/login") {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="text-center">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent mx-auto"></div>
           <p className="mt-2 text-sm text-muted-foreground">Loading...</p>
         </div>
       </div>

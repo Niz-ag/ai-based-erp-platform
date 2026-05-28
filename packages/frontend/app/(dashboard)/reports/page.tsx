@@ -41,7 +41,8 @@ export default function ReportsPage() {
 
   const handleGenerate = async (reportId: string) => {
     try {
-      await reportsApi.generate(reportData.type);
+      const report = reportData.find((r: any) => r.id === reportId);
+      await reportsApi.generate(report?.type || "Financial");
       toast.success("Report generation started");
       refetch();
     } catch (err) {
@@ -49,7 +50,7 @@ export default function ReportsPage() {
     }
   };
 
-  const reportData = reports?.data || [];
+  const reportData = reports | [];
   
   const dailyCount = reportData.filter((r: any) => r.schedule === 'daily').length;
   const weeklyCount = reportData.filter((r: any) => r.schedule === 'weekly').length;

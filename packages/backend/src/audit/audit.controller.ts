@@ -13,13 +13,12 @@ export class AuditController {
   @Get('logs')
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   getLogs(
-    @CurrentUser() currentUser: CurrentUserData,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('action') action?: string,
     @Query('userId') userId?: string,
   ) {
-    return this.auditService.getLogs(currentUser.tenantId, {
+    return this.auditService.getLogs({
       page: page ? parseInt(page) : 1,
       limit: limit ? parseInt(limit) : 50,
       action,
@@ -30,10 +29,9 @@ export class AuditController {
   @Get('logs/export')
   @Roles('superadmin', 'admin')
   exportLogs(
-    @CurrentUser() currentUser: CurrentUserData,
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.auditService.exportLogs(currentUser.tenantId, { from, to });
+    return this.auditService.exportLogs({ from, to });
   }
 }

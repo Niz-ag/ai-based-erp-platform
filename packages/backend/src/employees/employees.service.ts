@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
+import { tenantContextStorage } from '../common/tenant-context';
 
 @Injectable()
 export class EmployeesService {
@@ -9,7 +10,6 @@ export class EmployeesService {
   async findAll(currentUser: CurrentUserData) {
     return this.prisma.employee.findMany({
       where: {
-        tenantId: currentUser.tenantId,
         isActive: true,
       },
       include: {
@@ -20,6 +20,7 @@ export class EmployeesService {
   }
 
   async create(data: any, currentUser: CurrentUserData) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     const employeeData: any = {
       employeeCode: data.employeeCode,
       firstName: data.firstName,
@@ -27,7 +28,7 @@ export class EmployeesService {
       email: data.email,
       phone: data.phone,
       position: data.position,
-      tenant: { connect: { id: currentUser.tenantId } },
+      tenant: { connect: { id: tenantId } },
     };
 
     if (data.hireDate) {

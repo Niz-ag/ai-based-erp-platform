@@ -19,7 +19,6 @@ export class AuditInterceptor implements NestInterceptor {
       return next.handle().pipe(
         tap((data) => {
           this.auditService.log({
-            tenantId: user.tenantId,
             userId: user.id,
             action: method === 'POST' ? 'CREATE' : method === 'DELETE' ? 'DELETE' : 'UPDATE',
             entityType: this.getEntityType(url),
@@ -37,7 +36,7 @@ export class AuditInterceptor implements NestInterceptor {
 
   private getEntityType(url: string): string {
     const parts = url.split('/');
-    // Assuming /api/v1/resource/:id format
-    return parts[2] || 'UNKNOWN';
+    // Assuming /api/v1/resource/:id format, resource is at index 3
+    return parts[3] || 'UNKNOWN';
   }
 }

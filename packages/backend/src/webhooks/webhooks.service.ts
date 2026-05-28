@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { DeliveryStatus } from '@prisma/client';
+import { tenantContextStorage } from '../common/tenant-context';
 
 @Injectable()
 export class WebhooksService {
@@ -8,18 +9,18 @@ export class WebhooksService {
 
   async getAll(tenantId: string) {
     return this.prisma.webhookSubscription.findMany({
-      where: { tenantId },
       orderBy: { createdAt: 'desc' },
     });
   }
 
   async create(data: { url: string; events: string[]; secret?: string }, tenantId: string) {
+    const contextTenantId = tenantContextStorage.getStore()?.tenantId || tenantId;
     return this.prisma.webhookSubscription.create({
       data: {
         url: data.url,
         events: data.events,
         secret: data.secret,
-        tenantId,
+        tenant: { connect: { id: contextTenantId } },
       },
     });
   }
@@ -48,14 +49,16 @@ export class WebhooksService {
     const webhook = await this.prisma.webhookSubscription.findUnique({ where: { id } });
     if (!webhook) throw new NotFoundException('Webhook not found');
 
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
+
     // Create a test delivery
     const delivery = await this.prisma.webhookDelivery.create({
       data: {
-        subscriptionId: id,
+        subscription: { connect: { id } },
         event: 'TEST_WEBHOOK',
         payload: { test: true, timestamp: new Date().toISOString() },
         status: DeliveryStatus.PENDING,
-        tenantId: webhook.tenantId,
+        tenant: { connect: { id: tenantId } },
       },
     });
 
@@ -109,9 +112,9 @@ export class WebhooksService {
   }
 
   async trigger(event: string, payload: any, tenantId: string) {
+    const contextTenantId = tenantContextStorage.getStore()?.tenantId || tenantId;
     const subscriptions = await this.prisma.webhookSubscription.findMany({
       where: {
-        tenantId,
         isActive: true,
         events: { has: event },
       },
@@ -120,11 +123,11 @@ export class WebhooksService {
     for (const sub of subscriptions) {
       const delivery = await this.prisma.webhookDelivery.create({
         data: {
-          subscriptionId: sub.id,
+          subscription: { connect: { id: sub.id } },
           event,
           payload,
           status: DeliveryStatus.PENDING,
-          tenantId,
+          tenant: { connect: { id: contextTenantId } },
         },
       });
 

@@ -23,6 +23,12 @@ import { PayrollModule } from './payroll/payroll.module';
 import { AuditModule } from './audit/audit.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReportsModule } from './reports/reports.module';
+import { HealthModule } from './health/health.module';
+import { BullModule } from '@nestjs/bullmq';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { ResponseInterceptor } from './common/interceptors/response.interceptor';
+import { AuditInterceptor } from './common/interceptors/audit.interceptor';
+import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
 
 @Module({
   imports: [
@@ -30,6 +36,11 @@ import { ReportsModule } from './reports/reports.module';
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'amdox-secret-key-change-in-production',
       signOptions: { expiresIn: '24h' },
+    }),
+    BullModule.forRoot({
+      connection: {
+        url: process.env.REDIS_URL || 'redis://localhost:6379',
+      },
     }),
     PrismaModule,
     AuthModule,
@@ -53,6 +64,21 @@ import { ReportsModule } from './reports/reports.module';
     AuditModule,
     WebhooksModule,
     ReportsModule,
+    HealthModule,
+  ],
+  providers: [
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: TenantInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: ResponseInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: AuditInterceptor,
+    },
   ],
 })
 export class AppModule {}

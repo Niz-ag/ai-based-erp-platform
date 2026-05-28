@@ -35,7 +35,8 @@ export default function PayrollPage() {
     currency: "USD",
   });
 
-  const canRunPayroll = user?.role === 'superadmin' || user?.role === 'admin' || user?.role === 'manager';
+  const userRole = user?.role?.name?.toLowerCase();
+  const canRunPayroll = userRole === 'superadmin' || userRole === 'admin' || userRole === 'manager';
 
   const fetchRuns = async () => {
     try {

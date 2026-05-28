@@ -1,20 +1,18 @@
 import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditController } from './audit.controller';
 import { AuditService } from './audit.service';
 import { PrismaService } from '../common/prisma.service';
-import { AuditInterceptor } from '../common/interceptors/audit.interceptor';
+import { BullModule } from '@nestjs/bullmq';
+import { AuditProcessor } from './audit.processor';
 
 @Module({
-  controllers: [AuditController],
-  providers: [
-    AuditService, 
-    PrismaService,
-    {
-      provide: APP_INTERCEPTOR,
-      useClass: AuditInterceptor,
-    }
+  imports: [
+    BullModule.registerQueue({
+      name: 'audit',
+    }),
   ],
+  controllers: [AuditController],
+  providers: [AuditService, AuditProcessor, PrismaService],
   exports: [AuditService],
 })
 export class AuditModule {}

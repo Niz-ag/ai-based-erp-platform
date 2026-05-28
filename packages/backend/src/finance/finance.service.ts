@@ -1,7 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
+import { RedisService } from '../common/redis.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
 import { Prisma } from '@prisma/client';
+import { tenantContextStorage } from '../common/tenant-context';
 
 interface CreateAccountDto {
   code: string;
@@ -36,6 +38,7 @@ interface JournalEntryFilters {
 
 @Injectable()
 export class FinanceService {
+  private readonly logger = new Logger(FinanceService.name);
   constructor(private prisma: PrismaService) {}
 
   // Accounts
@@ -46,7 +49,7 @@ export class FinanceService {
     
     const [accounts, total] = await Promise.all([
       this.prisma.account.findMany({
-        where: { tenantId: currentUser.tenantId, isActive: true },
+        where: { isActive: true },
         skip,
         take: l,
         orderBy: { code: 'asc' },
@@ -56,7 +59,7 @@ export class FinanceService {
         },
       }),
       this.prisma.account.count({
-        where: { tenantId: currentUser.tenantId, isActive: true },
+        where: { isActive: true },
       }),
     ]);
 
@@ -68,7 +71,7 @@ export class FinanceService {
 
   async findAccountById(id: string, currentUser: CurrentUserData) {
     const account = await this.prisma.account.findFirst({
-      where: { id, tenantId: currentUser.tenantId },
+      where: { id },
       include: {
         parent: { select: { id: true, code: true, name: true } },
         children: { select: { id: true, code: true, name: true } },
@@ -80,9 +83,10 @@ export class FinanceService {
   }
 
   async createAccount(dto: CreateAccountDto, currentUser: CurrentUserData) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     // Check if code already exists for this tenant
-    const existing = await this.prisma.account.findUnique({
-      where: { code_tenantId: { code: dto.code, tenantId: currentUser.tenantId } },
+    const existing = await this.prisma.account.findFirst({
+      where: { code: dto.code },
     });
 
     if (existing) {
@@ -92,7 +96,7 @@ export class FinanceService {
     // Validate parent if provided
     if (dto.parentId) {
       const parent = await this.prisma.account.findFirst({
-        where: { id: dto.parentId, tenantId: currentUser.tenantId },
+        where: { id: dto.parentId },
       });
       if (!parent) throw new NotFoundException('Parent account not found');
     }
@@ -103,8 +107,8 @@ export class FinanceService {
         name: dto.name,
         description: dto.description,
         type: dto.type,
-        tenant: { connect: { id: currentUser.tenantId } },
         parent: dto.parentId ? { connect: { id: dto.parentId } } : undefined,
+        tenant: { connect: { id: tenantId } },
       },
     });
   }
@@ -119,9 +123,7 @@ export class FinanceService {
     const l = Number(limit);
     const skip = (p - 1) * l;
 
-    const where: Prisma.JournalEntryWhereInput = {
-      tenantId: currentUser.tenantId,
-    };
+    const where: Prisma.JournalEntryWhereInput = {};
 
     if (startDate || endDate) {
       where.date = {};
@@ -167,7 +169,7 @@ export class FinanceService {
 
       // Verify account exists and belongs to tenant
       const account = await this.prisma.account.findFirst({
-        where: { id: line.accountId, tenantId: currentUser.tenantId },
+        where: { id: line.accountId },
       });
 
       if (!account) {
@@ -186,12 +188,13 @@ export class FinanceService {
     }
 
     // Create journal entry with lines in transaction
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
     return this.prisma.$transaction(async (tx) => {
       // Generate entry number ATOMICALLY using the Sequence table
       const sequence = await tx.sequence.upsert({
-        where: { tenantId_name: { tenantId: currentUser.tenantId, name: 'journal_entry' } },
+        where: { tenantId_name: { tenantId, name: 'journal_entry' } },
         update: { value: { increment: 1 } },
-        create: { tenantId: currentUser.tenantId, name: 'journal_entry', value: 1 },
+        create: { name: 'journal_entry', value: 1, tenant: { connect: { id: tenantId } } },
       });
       
       const entryNumber = `JE-${String(sequence.value).padStart(6, '0')}`;
@@ -202,8 +205,8 @@ export class FinanceService {
           date: dto.date || new Date(),
           description: dto.description,
           status: 'DRAFT',
-          tenant: { connect: { id: currentUser.tenantId } },
           createdBy: { connect: { id: currentUser.id } },
+          tenant: { connect: { id: tenantId } },
           lines: {
             create: dto.lines.map((line) => ({
               account: { connect: { id: line.accountId } },
@@ -212,7 +215,7 @@ export class FinanceService {
               description: line.description,
               currency: line.currencyId ? { connect: { id: line.currencyId } } : undefined,
               exchangeRate: line.exchangeRate ? new Prisma.Decimal(line.exchangeRate) : new Prisma.Decimal(1),
-              tenant: { connect: { id: currentUser.tenantId } },
+              tenant: { connect: { id: tenantId } },
             })),
           },
         },
@@ -229,28 +232,136 @@ export class FinanceService {
     });
   }
 
+  async postJournalEntry(id: string, currentUser: CurrentUserData) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
+    
+    return this.prisma.$transaction(async (tx) => {
+      const entry = await tx.journalEntry.findUnique({
+        where: { id },
+        include: { lines: true },
+      });
+
+      if (!entry) throw new NotFoundException('Journal entry not found');
+      if (entry.status === 'POSTED') throw new BadRequestException('Entry already posted');
+
+      // Update balances for each account involved
+      for (const line of entry.lines) {
+        const account = await tx.account.findUnique({ where: { id: line.accountId } });
+        if (!account) throw new NotFoundException(`Account ${line.accountId} not found`);
+
+        // Logic for debit/credit depends on account type
+        // Assets/Expenses increase with Debit, decrease with Credit
+        // Liabilities/Equity/Revenue increase with Credit, decrease with Debit
+        let balanceAdjustment = new Prisma.Decimal(0);
+        
+        const isNormalDebit = account.type === 'ASSET' || account.type === 'EXPENSE';
+        
+        if (line.debit) {
+          balanceAdjustment = isNormalDebit ? balanceAdjustment.plus(line.debit) : balanceAdjustment.minus(line.debit);
+        }
+        if (line.credit) {
+          balanceAdjustment = isNormalDebit ? balanceAdjustment.minus(line.credit) : balanceAdjustment.plus(line.credit);
+        }
+
+        await tx.account.update({
+          where: { id: account.id },
+          data: { balance: { increment: balanceAdjustment } },
+        });
+      }
+
+      return tx.journalEntry.update({
+        where: { id },
+        data: { status: 'POSTED' },
+        include: { lines: { include: { account: true } } },
+      });
+    });
+  }
+
+  async getProfitAndLoss(currentUser: CurrentUserData, startDate: Date, endDate: Date) {
+    const accounts = await this.prisma.account.findMany({
+      where: {
+        isActive: true,
+        type: { in: ['REVENUE', 'EXPENSE'] },
+      },
+      include: {
+        journalLines: {
+          where: {
+            journalEntry: {
+              status: 'POSTED',
+              date: { gte: startDate, lte: endDate },
+            },
+          },
+        },
+      },
+    });
+
+    const report = {
+      revenue: [] as any[],
+      expense: [] as any[],
+      totalRevenue: new Prisma.Decimal(0),
+      totalExpense: new Prisma.Decimal(0),
+      netProfit: new Prisma.Decimal(0),
+    };
+
+    for (const account of accounts) {
+      let balance = new Prisma.Decimal(0);
+      for (const line of account.journalLines) {
+        if (account.type === 'REVENUE') {
+          // Revenue increases with Credit
+          if (line.credit) balance = balance.plus(line.credit);
+          if (line.debit) balance = balance.minus(line.debit);
+        } else {
+          // Expense increases with Debit
+          if (line.debit) balance = balance.plus(line.debit);
+          if (line.credit) balance = balance.minus(line.credit);
+        }
+      }
+
+      const item = {
+        id: account.id,
+        code: account.code,
+        name: account.name,
+        balance: balance,
+      };
+
+      if (account.type === 'REVENUE') {
+        report.revenue.push(item);
+        report.totalRevenue = report.totalRevenue.plus(balance);
+      } else {
+        report.expense.push(item);
+        report.totalExpense = report.totalExpense.plus(balance);
+      }
+    }
+
+    report.netProfit = report.totalRevenue.minus(report.totalExpense);
+    return report;
+  }
+
   // Currencies
   async findAllCurrencies(currentUser: CurrentUserData) {
     return this.prisma.currency.findMany({
       where: {
-        OR: [
-          { tenantId: null },
-          { tenantId: currentUser.tenantId },
-        ],
         isActive: true,
       },
       orderBy: { code: 'asc' },
     });
   }
 
+  @Inject(RedisService) private redis: RedisService;
+
   // Exchange Rates
   async findAllExchangeRates(currentUser: CurrentUserData) {
-    return this.prisma.exchangeRate.findMany({
+    const cacheKey = `fx_rates:${currentUser.tenantId || 'global'}`;
+    
+    try {
+      const cached = await this.redis.get(cacheKey);
+      if (cached) return JSON.parse(cached);
+    } catch (e) {
+      this.logger.error(`Redis error fetching FX rates: ${e.message}`);
+    }
+
+    const rates = await this.prisma.exchangeRate.findMany({
       where: {
-        OR: [
-          { tenantId: null },
-          { tenantId: currentUser.tenantId },
-        ],
         isActive: true,
       },
       orderBy: { effectiveDate: 'desc' },
@@ -259,5 +370,12 @@ export class FinanceService {
         toCurrency: { select: { id: true, code: true, name: true } },
       },
     });
+
+    try {
+      // Cache for 1 hour
+      await this.redis.set(cacheKey, JSON.stringify(rates), 3600);
+    } catch (e) {}
+
+    return rates;
   }
 }

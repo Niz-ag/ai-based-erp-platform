@@ -66,8 +66,10 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
   const { user } = useAuthStore();
 
-  // Default to viewer level (1) if role not in hierarchy
-  const currentUserRoleLevel = roleHierarchy[user?.role as keyof typeof roleHierarchy] || 1;
+  // AI MANDATE: Strict Type Alignment
+  // Accessing .name directly from the Role object as defined in types.ts
+  const roleName = user?.role?.name;
+  const currentUserRoleLevel = roleHierarchy[roleName?.toLowerCase() as keyof typeof roleHierarchy] || 1;
   
   // Filter navigation items based on user role hierarchy
   // Users see menu items equal to or below their role level

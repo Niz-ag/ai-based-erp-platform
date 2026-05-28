@@ -78,9 +78,37 @@ export function ProjectDetails({ projectId, onBack }: ProjectDetailsProps) {
   const updateTaskStatusMutation = useMutation({
     mutationFn: ({ taskId, status }: { taskId: string; status: string }) => 
       tasksApi.update(taskId, { status }),
-    onSuccess: () => {
+    // AI MANDATE: Optimistic UI (Phase 3 Strategy)
+    onMutate: async ({ taskId, status }) => {
+      // Cancel any outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: ["project", projectId] });
+
+      // Snapshot the previous value
+      const previousProject = queryClient.getQueryData(["project", projectId]);
+
+      // Optimistically update to the new value
+      queryClient.setQueryData(["project", projectId], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          tasks: old.tasks?.map((task: any) => 
+            task.id === taskId ? { ...task, status } : task
+          ),
+        };
+      });
+
+      return { previousProject };
+    },
+    onError: (err, variables, context) => {
+      // Rollback on error
+      if (context?.previousProject) {
+        queryClient.setQueryData(["project", projectId], context.previousProject);
+      }
+      toast.error("Failed to update task status");
+    },
+    onSettled: () => {
+      // Always refetch in background to sync with server truth
       queryClient.invalidateQueries({ queryKey: ["project", projectId] });
-      toast.success("Task status updated");
     },
   });
 
@@ -229,7 +257,7 @@ export function ProjectDetails({ projectId, onBack }: ProjectDetailsProps) {
                               </span>
                             )}
                             {task.assignee && (
-                              <span>@{task.assignee.firstName}</span>
+                              <span>@{task.assignee?.firstName}</span>
                             )}
                           </div>
                         </div>

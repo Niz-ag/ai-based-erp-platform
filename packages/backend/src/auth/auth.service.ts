@@ -1,6 +1,7 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma.service';
+import { RedisService } from '../common/redis.service';
 import * as bcrypt from 'bcrypt';
 
 export interface LoginDto {
@@ -24,7 +25,29 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
+    private redis: RedisService,
   ) {}
+
+  /**
+   * AI MANDATE: Cache Priming (Phase 2 Strategy)
+   * We prime the Redis cache during login to ensure subsequent requests 
+   * are ultra-fast and don't bottleneck the database.
+   */
+  private async primeUserCache(user: any) {
+    const cacheKey = `user:${user.id}:v1`;
+    const userData = {
+      id: user.id,
+      email: user.email,
+      tenantId: user.tenantId,
+      roleId: user.roleId,
+      role: user.role,
+    };
+    try {
+      await this.redis.set(cacheKey, JSON.stringify(userData), 300); // 5 min TTL
+    } catch (e) {
+      // Ignore cache priming failures to prevent login blocking
+    }
+  }
 
   async login(loginDto: LoginDto) {
     try {
@@ -69,26 +92,10 @@ export class AuthService {
         throw new UnauthorizedException('Invalid MFA code');
       }
 
-      const payload = {
-        sub: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        roleId: user.roleId,
-      };
+      // Prime the cache BEFORE returning the token
+      await this.primeUserCache(user);
 
-      const token = this.jwtService.sign(payload);
-
-      return {
-        access_token: token,
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role.name,
-          tenant: user.tenant.name,
-        },
-      };
+      return this.generateToken(user);
     } catch (error) {
       console.error('Login error:', error);
       throw error;
@@ -121,24 +128,9 @@ export class AuthService {
         include: { role: true, tenant: true },
       });
 
-      const payload = {
-        sub: user.id,
-        email: user.email,
-        tenantId: user.tenantId,
-        roleId: user.roleId,
-      };
+      await this.primeUserCache(user);
 
-      return {
-        access_token: this.jwtService.sign(payload),
-        user: {
-          id: user.id,
-          email: user.email,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          role: user.role.name,
-          tenant: user.tenant.name,
-        },
-      };
+      return this.generateToken(user);
     } catch (error) {
       console.error('Registration error:', error);
       throw error;
@@ -152,7 +144,6 @@ export class AuthService {
     });
 
     if (!user) {
-      // Derive tenant from email domain
       const domain = data.email.split('@')[1];
       const tenant = await this.prisma.tenant.findUnique({
         where: { domain },
@@ -170,7 +161,6 @@ export class AuthService {
         throw new Error('Default User role not found. Please seed the database.');
       }
 
-      // Create user from SSO - no password needed
       user = await this.prisma.user.create({
         data: {
           email: data.email,
@@ -185,6 +175,7 @@ export class AuthService {
       });
     }
 
+    await this.primeUserCache(user);
     return this.generateToken(user);
   }
 
@@ -205,7 +196,13 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role.name,
+        role: {
+          id: user.role.id,
+          name: user.role.name,
+          permissions: typeof user.role.permissions === 'string' 
+            ? JSON.parse(user.role.permissions) 
+            : user.role.permissions
+        },
         tenant: user.tenant.name,
       },
     };
