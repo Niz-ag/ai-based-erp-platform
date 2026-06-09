@@ -4,12 +4,14 @@ import { PayrollService } from './payroll.service';
 import { PrismaService } from '../common/prisma.service';
 import { BullModule } from '@nestjs/bullmq';
 import { PayrollProcessor } from './payroll.processor';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
     BullModule.registerQueue({
       name: 'payroll',
     }),
+    FinanceModule,
   ],
   controllers: [PayrollController],
   providers: [PayrollService, PayrollProcessor, PrismaService],

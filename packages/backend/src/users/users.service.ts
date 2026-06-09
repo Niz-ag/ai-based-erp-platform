@@ -6,7 +6,9 @@ import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+  ) {}
 
   async findAll(currentUser: CurrentUserData) {
     // All users can list users within their tenant
@@ -53,6 +55,9 @@ export class UsersService {
         email: true,
         firstName: true,
         lastName: true,
+        theme: true,
+        language: true,
+        avatar: true,
         isActive: true,
         createdAt: true,
         tenantId: true,
@@ -63,6 +68,7 @@ export class UsersService {
             permissions: true,
           },
         },
+        notificationPreference: true,
       },
     });
 
@@ -74,8 +80,10 @@ export class UsersService {
   }
 
   async create(data: Prisma.UserCreateInput, currentUser: CurrentUserData) {
+    console.log('--- DEBUG CREATE USER ---', JSON.stringify(currentUser));
     // Only admins can create users
-    if (currentUser.role.name !== 'admin' && currentUser.role.name !== 'SuperAdmin') {
+    const roleName = currentUser.role?.name?.toLowerCase();
+    if (roleName !== 'admin' && roleName !== 'superadmin') {
       throw new ForbiddenException('Only admins can create users');
     }
 
@@ -103,26 +111,44 @@ export class UsersService {
     });
   }
 
-  async update(id: string, data: Prisma.UserUpdateInput, currentUser: CurrentUserData) {
+  async update(id: string, data: any, currentUser: CurrentUserData) {
     // Users can update their own profile, admins can update anyone
-    if (currentUser.role.name !== 'admin' && currentUser.role.name !== 'SuperAdmin' && currentUser.id !== id) {
+    const roleName = currentUser.role?.name?.toLowerCase();
+    if (roleName !== 'admin' && roleName !== 'superadmin' && currentUser.id !== id) {
       throw new ForbiddenException('Cannot update other users');
     }
 
+    const { notificationPreference, ...rest } = data;
+    const updateData: Prisma.UserUpdateInput = { ...rest };
+
+    if (notificationPreference) {
+      updateData.notificationPreference = {
+        upsert: {
+          create: {
+            ...notificationPreference,
+            tenant: { connect: { id: currentUser.tenantId } }
+          },
+          update: notificationPreference
+        }
+      };
+    }
+
     // Hash password if provided
-    if (data.passwordHash) {
-      const password = data.passwordHash as string;
-      data.passwordHash = await bcrypt.hash(password, 10);
+    if (updateData.passwordHash) {
+      const password = updateData.passwordHash as string;
+      updateData.passwordHash = await bcrypt.hash(password, 10);
     }
 
     return this.prisma.user.update({
       where: { id },
-      data,
+      data: updateData,
       select: {
         id: true,
         email: true,
         firstName: true,
         lastName: true,
+        theme: true,
+        language: true,
         isActive: true,
         createdAt: true,
         role: {
@@ -131,6 +157,32 @@ export class UsersService {
             name: true,
           },
         },
+        notificationPreference: true,
+      },
+    });
+  }
+
+  async updateAvatar(id: string, avatarUrl: string, currentUser: CurrentUserData) {
+    const roleName = currentUser.role?.name?.toLowerCase();
+    if (roleName !== 'admin' && roleName !== 'superadmin' && currentUser.id !== id) {
+      throw new ForbiddenException('Cannot update other users');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { avatar: true },
+    });
+
+    if (user && user.avatar && user.avatar !== avatarUrl) {
+      // await this.fileCleanupService.deleteFile(user.avatar);
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { avatar: avatarUrl },
+      select: {
+        id: true,
+        avatar: true,
       },
     });
   }
@@ -143,7 +195,8 @@ export class UsersService {
 
   async remove(id: string, currentUser: CurrentUserData) {
     // Only admins can delete users
-    if (currentUser.role.name !== 'admin' && currentUser.role.name !== 'SuperAdmin') {
+    const roleName = currentUser.role?.name?.toLowerCase();
+    if (roleName !== 'admin' && roleName !== 'superadmin') {
       throw new ForbiddenException('Only admins can delete users');
     }
 

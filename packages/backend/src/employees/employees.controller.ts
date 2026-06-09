@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Delete, Param, Patch } from '@nestjs/common';
 import { EmployeesService } from './employees.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -15,6 +15,7 @@ interface CreateEmployeeDto {
   position?: string;
   salary?: number;
   departmentId?: string;
+  isActive?: boolean;
 }
 
 @Controller('employees')
@@ -35,5 +36,24 @@ export class EmployeesController {
     @CurrentUser() currentUser: CurrentUserData,
   ) {
     return this.employeesService.create(createEmployeeDto, currentUser);
+  }
+
+  @Patch(':id')
+  @Roles('superadmin', 'admin', 'manager')
+  update(
+    @Param('id') id: string,
+    @Body() updateEmployeeDto: CreateEmployeeDto,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.employeesService.update(id, updateEmployeeDto, currentUser);
+  }
+
+  @Delete(':id')
+  @Roles('superadmin', 'admin')
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.employeesService.remove(id, currentUser);
   }
 }

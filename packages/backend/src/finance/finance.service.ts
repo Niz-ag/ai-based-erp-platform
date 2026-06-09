@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Inject, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ConflictException, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { RedisService } from '../common/redis.service';
 import { CurrentUserData } from '../common/decorators/current-user.decorator';
@@ -25,6 +25,7 @@ interface JournalLineDto {
 interface CreateJournalEntryDto {
   date?: Date;
   description: string;
+  reference?: string;
   lines: JournalLineDto[];
 }
 
@@ -113,8 +114,63 @@ export class FinanceService {
     });
   }
 
+  async updateAccount(id: string, dto: Partial<CreateAccountDto>, currentUser: CurrentUserData) {
+    const account = await this.prisma.account.findUnique({ where: { id } });
+    if (!account) throw new NotFoundException('Account not found');
+
+    if (dto.code && dto.code !== account.code) {
+      const existing = await this.prisma.account.findFirst({
+        where: { code: dto.code },
+      });
+      if (existing) throw new BadRequestException(`Account with code ${dto.code} already exists`);
+    }
+
+    if (dto.parentId) {
+      const parent = await this.prisma.account.findFirst({ where: { id: dto.parentId } });
+      if (!parent) throw new NotFoundException('Parent account not found');
+    }
+
+    return this.prisma.account.update({
+      where: { id },
+      data: {
+        code: dto.code,
+        name: dto.name,
+        description: dto.description,
+        type: dto.type,
+        parentId: dto.parentId,
+      },
+    });
+  }
+
+  async removeAccount(id: string, currentUser: CurrentUserData) {
+    const account = await this.prisma.account.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: { journalLines: true, children: true }
+        }
+      }
+    });
+
+    if (!account) {
+      throw new NotFoundException('Account not found');
+    }
+
+    if (account._count.journalLines > 0) {
+      throw new ConflictException('Cannot delete account with existing journal entries');
+    }
+
+    if (account._count.children > 0) {
+      throw new ConflictException('Cannot delete account with child accounts');
+    }
+
+    return this.prisma.account.delete({
+      where: { id }
+    });
+  }
+
   // Journal Entries
-  async findAllJournalEntries(
+  async getJournalEntries(
     currentUser: CurrentUserData,
     filters: JournalEntryFilters,
   ) {
@@ -127,8 +183,8 @@ export class FinanceService {
 
     if (startDate || endDate) {
       where.date = {};
-      if (startDate) where.date.gte = startDate;
-      if (endDate) where.date.lte = endDate;
+      if (startDate) where.date.gte = new Date(startDate);
+      if (endDate) where.date.lte = new Date(endDate);
     }
 
     if (status) where.status = status;
@@ -143,6 +199,7 @@ export class FinanceService {
           lines: {
             include: {
               account: { select: { id: true, code: true, name: true } },
+              currency: { select: { id: true, code: true, symbol: true } },
             },
           },
           createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
@@ -158,16 +215,28 @@ export class FinanceService {
   }
 
   async createJournalEntry(dto: CreateJournalEntryDto, currentUser: CurrentUserData) {
-    // Validate double-entry: debits must equal credits
-    let totalDebits = new Prisma.Decimal(0);
-    let totalCredits = new Prisma.Decimal(0);
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
+
+    // Get default currency (Base/Reporting)
+    const defaultCurrency = await this.prisma.currency.findFirst({
+      where: { isDefault: true, OR: [{ tenantId }, { tenantId: null }] },
+    });
+
+    if (!defaultCurrency) {
+      throw new BadRequestException('Default currency (USD) not configured');
+    }
+
+    // Validate double-entry and calculate base amounts
+    let totalBaseDebits = new Prisma.Decimal(0);
+    let totalBaseCredits = new Prisma.Decimal(0);
+    const processedLines = [];
 
     for (const line of dto.lines) {
       if (!line.accountId) {
         throw new BadRequestException('Each line must have an accountId');
       }
 
-      // Verify account exists and belongs to tenant
+      // Verify account exists
       const account = await this.prisma.account.findFirst({
         where: { id: line.accountId },
       });
@@ -176,19 +245,56 @@ export class FinanceService {
         throw new NotFoundException(`Account ${line.accountId} not found`);
       }
 
-      if (line.debit) totalDebits = totalDebits.plus(new Prisma.Decimal(line.debit));
-      if (line.credit) totalCredits = totalCredits.plus(new Prisma.Decimal(line.credit));
+      let rate = new Prisma.Decimal(line.exchangeRate || 1);
+      const isDefaultCurrency = !line.currencyId || line.currencyId === defaultCurrency.id;
+
+      if (!isDefaultCurrency && !line.exchangeRate) {
+        // Fetch current exchange rate to base currency
+        const rateRecord = await this.prisma.exchangeRate.findFirst({
+          where: {
+            fromCurrencyId: line.currencyId,
+            toCurrencyId: defaultCurrency.id,
+            isActive: true,
+          },
+          orderBy: { effectiveDate: 'desc' },
+        });
+
+        if (!rateRecord) {
+          const currency = await this.prisma.currency.findUnique({ where: { id: line.currencyId } });
+          throw new BadRequestException(`No exchange rate found for ${currency?.code || line.currencyId} to ${defaultCurrency.code}`);
+        }
+        rate = rateRecord.rate;
+      } else if (isDefaultCurrency) {
+        rate = new Prisma.Decimal(1);
+      }
+
+      const debit = line.debit ? new Prisma.Decimal(line.debit) : new Prisma.Decimal(0);
+      const credit = line.credit ? new Prisma.Decimal(line.credit) : new Prisma.Decimal(0);
+      
+      const baseDebit = debit.mul(rate);
+      const baseCredit = credit.mul(rate);
+
+      totalBaseDebits = totalBaseDebits.plus(baseDebit);
+      totalBaseCredits = totalBaseCredits.plus(baseCredit);
+
+      processedLines.push({
+        ...line,
+        debit: line.debit ? debit : null,
+        credit: line.credit ? credit : null,
+        baseDebit,
+        baseCredit,
+        exchangeRate: rate,
+      });
     }
 
-    // Validate debits = credits
-    if (!totalDebits.equals(totalCredits)) {
+    // Validate debits = credits in base currency
+    if (!totalBaseDebits.equals(totalBaseCredits)) {
       throw new BadRequestException(
-        `Double-entry validation failed: debits (${totalDebits}) must equal credits (${totalCredits})`,
+        `Double-entry validation failed: total debits (${totalBaseDebits}) must equal total credits (${totalBaseCredits}) in ${defaultCurrency.code}`,
       );
     }
 
     // Create journal entry with lines in transaction
-    const tenantId = tenantContextStorage.getStore()?.tenantId;
     return this.prisma.$transaction(async (tx) => {
       // Generate entry number ATOMICALLY using the Sequence table
       const sequence = await tx.sequence.upsert({
@@ -204,17 +310,20 @@ export class FinanceService {
           entryNumber,
           date: dto.date || new Date(),
           description: dto.description,
+          reference: dto.reference,
           status: 'DRAFT',
           createdBy: { connect: { id: currentUser.id } },
           tenant: { connect: { id: tenantId } },
           lines: {
-            create: dto.lines.map((line) => ({
+            create: processedLines.map((line) => ({
               account: { connect: { id: line.accountId } },
-              debit: line.debit ? new Prisma.Decimal(line.debit) : null,
-              credit: line.credit ? new Prisma.Decimal(line.credit) : null,
+              debit: line.debit,
+              credit: line.credit,
+              baseDebit: line.baseDebit,
+              baseCredit: line.baseCredit,
               description: line.description,
               currency: line.currencyId ? { connect: { id: line.currencyId } } : undefined,
-              exchangeRate: line.exchangeRate ? new Prisma.Decimal(line.exchangeRate) : new Prisma.Decimal(1),
+              exchangeRate: line.exchangeRate,
               tenant: { connect: { id: tenantId } },
             })),
           },
@@ -256,11 +365,11 @@ export class FinanceService {
         
         const isNormalDebit = account.type === 'ASSET' || account.type === 'EXPENSE';
         
-        if (line.debit) {
-          balanceAdjustment = isNormalDebit ? balanceAdjustment.plus(line.debit) : balanceAdjustment.minus(line.debit);
+        if (line.baseDebit) {
+          balanceAdjustment = isNormalDebit ? balanceAdjustment.plus(line.baseDebit) : balanceAdjustment.minus(line.baseDebit);
         }
-        if (line.credit) {
-          balanceAdjustment = isNormalDebit ? balanceAdjustment.minus(line.credit) : balanceAdjustment.plus(line.credit);
+        if (line.baseCredit) {
+          balanceAdjustment = isNormalDebit ? balanceAdjustment.minus(line.baseCredit) : balanceAdjustment.plus(line.baseCredit);
         }
 
         await tx.account.update({
@@ -278,9 +387,12 @@ export class FinanceService {
   }
 
   async getProfitAndLoss(currentUser: CurrentUserData, startDate: Date, endDate: Date) {
+    // Validate dates
+    const start = (startDate && !isNaN(startDate.getTime())) ? startDate : new Date(new Date().getFullYear(), 0, 1);
+    const end = (endDate && !isNaN(endDate.getTime())) ? endDate : new Date();
+
     const accounts = await this.prisma.account.findMany({
       where: {
-        isActive: true,
         type: { in: ['REVENUE', 'EXPENSE'] },
       },
       include: {
@@ -288,7 +400,7 @@ export class FinanceService {
           where: {
             journalEntry: {
               status: 'POSTED',
-              date: { gte: startDate, lte: endDate },
+              date: { gte: start, lte: end },
             },
           },
         },
@@ -308,14 +420,17 @@ export class FinanceService {
       for (const line of account.journalLines) {
         if (account.type === 'REVENUE') {
           // Revenue increases with Credit
-          if (line.credit) balance = balance.plus(line.credit);
-          if (line.debit) balance = balance.minus(line.debit);
+          if (line.baseCredit) balance = balance.plus(line.baseCredit);
+          if (line.baseDebit) balance = balance.minus(line.baseDebit);
         } else {
           // Expense increases with Debit
-          if (line.debit) balance = balance.plus(line.debit);
-          if (line.credit) balance = balance.minus(line.credit);
+          if (line.baseDebit) balance = balance.plus(line.baseDebit);
+          if (line.baseCredit) balance = balance.minus(line.baseCredit);
         }
       }
+
+      // Only include accounts with activity or non-zero balance for a cleaner report
+      if (balance.isZero() && account.journalLines.length === 0) continue;
 
       const item = {
         id: account.id,
@@ -337,6 +452,114 @@ export class FinanceService {
     return report;
   }
 
+  async getBalanceSheet(currentUser: CurrentUserData, date: Date) {
+    const asOfDate = (date && !isNaN(date.getTime())) ? date : new Date();
+
+    // 1. Fetch all accounts
+    const accounts = await this.prisma.account.findMany();
+
+    // 2. Fetch summed journal lines up to asOfDate from POSTED entries
+    // Reconstructs balance by summing historical baseDebits and baseCredits
+    const journalSummary = await this.prisma.journalLine.groupBy({
+      by: ['accountId'],
+      where: {
+        journalEntry: {
+          status: 'POSTED',
+          date: { lte: asOfDate },
+        },
+      },
+      _sum: {
+        baseDebit: true,
+        baseCredit: true,
+      },
+    });
+
+    // Create a map for quick lookup of the summed debits/credits per account
+    const balanceMap = new Map(
+      journalSummary.map((s) => [
+        s.accountId,
+        {
+          debit: s._sum.baseDebit || new Prisma.Decimal(0),
+          credit: s._sum.baseCredit || new Prisma.Decimal(0),
+        },
+      ]),
+    );
+
+    const report = {
+      assets: [] as any[],
+      liabilities: [] as any[],
+      equity: [] as any[],
+      totalAssets: new Prisma.Decimal(0),
+      totalLiabilities: new Prisma.Decimal(0),
+      totalEquity: new Prisma.Decimal(0),
+      retainedEarnings: new Prisma.Decimal(0),
+    };
+
+    let totalRevenue = new Prisma.Decimal(0);
+    let totalExpense = new Prisma.Decimal(0);
+
+    for (const account of accounts) {
+      const summary = balanceMap.get(account.id) || {
+        debit: new Prisma.Decimal(0),
+        credit: new Prisma.Decimal(0),
+      };
+
+      let balance = new Prisma.Decimal(0);
+      
+      // Calculate historical balance based on account type
+      // Assets/Expenses increase with Debit, decrease with Credit
+      // Liabilities/Equity/Revenue increase with Credit, decrease with Debit
+      if (account.type === 'ASSET' || account.type === 'EXPENSE') {
+        balance = summary.debit.minus(summary.credit);
+      } else {
+        balance = summary.credit.minus(summary.debit);
+      }
+
+      const item = {
+        id: account.id,
+        code: account.code,
+        name: account.name,
+        balance: balance,
+      };
+
+      switch (account.type) {
+        case 'ASSET':
+          report.assets.push(item);
+          report.totalAssets = report.totalAssets.plus(balance);
+          break;
+        case 'LIABILITY':
+          report.liabilities.push(item);
+          report.totalLiabilities = report.totalLiabilities.plus(balance);
+          break;
+        case 'EQUITY':
+          report.equity.push(item);
+          report.totalEquity = report.totalEquity.plus(balance);
+          break;
+        case 'REVENUE':
+          totalRevenue = totalRevenue.plus(balance);
+          break;
+        case 'EXPENSE':
+          totalExpense = totalExpense.plus(balance);
+          break;
+      }
+    }
+
+    // Dynamic Retained Earnings = Cumulative Revenue - Cumulative Expense as of the date
+    report.retainedEarnings = totalRevenue.minus(totalExpense);
+    
+    // Add Retained Earnings to Equity section for the balance sheet to balance
+    report.equity.push({
+      id: 'retained-earnings',
+      code: '3999',
+      name: 'Retained Earnings (Net Income)',
+      balance: report.retainedEarnings,
+    });
+    
+    report.totalEquity = report.totalEquity.plus(report.retainedEarnings);
+
+    return report;
+  }
+
   // Currencies
   async findAllCurrencies(currentUser: CurrentUserData) {
     return this.prisma.currency.findMany({
@@ -344,6 +567,37 @@ export class FinanceService {
         isActive: true,
       },
       orderBy: { code: 'asc' },
+    });
+  }
+
+  async createCurrency(data: any, currentUser: CurrentUserData) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
+    return this.prisma.currency.create({
+      data: {
+        ...data,
+        tenantId,
+      },
+    });
+  }
+
+  async updateCurrency(id: string, dto: { code?: string, name?: string, symbol?: string, isActive?: boolean }, currentUser: CurrentUserData) {
+    const currency = await this.prisma.currency.findUnique({ where: { id } });
+    if (!currency) throw new NotFoundException('Currency not found');
+
+    return this.prisma.currency.update({
+      where: { id },
+      data: dto,
+    });
+  }
+
+  async deleteCurrency(id: string, currentUser: CurrentUserData) {
+    const currency = await this.prisma.currency.findUnique({ where: { id } });
+    if (!currency) throw new NotFoundException('Currency not found');
+    if (currency.isDefault) throw new Error('Cannot delete default currency');
+
+    return this.prisma.currency.update({
+      where: { id },
+      data: { isActive: false },
     });
   }
 
@@ -374,7 +628,9 @@ export class FinanceService {
     try {
       // Cache for 1 hour
       await this.redis.set(cacheKey, JSON.stringify(rates), 3600);
-    } catch (e) {}
+    } catch (e) {
+      this.logger.error(`Failed to cache FX rates: ${e.message}`);
+    }
 
     return rates;
   }

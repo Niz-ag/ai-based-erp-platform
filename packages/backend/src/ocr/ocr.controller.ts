@@ -4,6 +4,7 @@ import { OcrService } from './ocr.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.decorator';
 
 @Controller('ocr')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -13,16 +14,22 @@ export class OcrController {
   @Post('invoice')
   @Roles('superadmin', 'admin', 'manager')
   @UseInterceptors(FileInterceptor('file'))
-  async parseInvoice(@UploadedFile() file: any) {
+  async parseInvoice(
+    @UploadedFile() file: any,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
     const text = await this.ocrService.extractText(file.buffer);
-    const invoice = this.ocrService.parseInvoiceData(text);
+    const invoice = await this.ocrService.mapAndCreateDraft(text, currentUser);
     return invoice;
   }
 
   @Post('invoice/text')
   @Roles('superadmin', 'admin', 'manager')
-  async parseInvoiceText(@Body() body: { text: string }) {
-    const invoice = this.ocrService.parseInvoiceData(body.text);
+  async parseInvoiceText(
+    @Body() body: { text: string },
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    const invoice = await this.ocrService.mapAndCreateDraft(body.text, currentUser);
     return invoice;
   }
 }

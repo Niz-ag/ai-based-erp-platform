@@ -7,18 +7,33 @@ export class DashboardService {
   constructor(private prisma: PrismaService) {}
 
   async getStats(currentUser: CurrentUserData) {
+    const { tenantId } = currentUser;
     const [
       userCount,
       employeeCount,
       projectCount,
       purchaseOrderCount,
       accountCount,
+      lowStockResult,
     ] = await Promise.all([
-      this.prisma.user.count({ where: { } }),
+      this.prisma.user.count({ where: { isActive: true } }),
       this.prisma.employee.count({ where: { isActive: true } }),
       this.prisma.project.count({ where: { isActive: true } }),
       this.prisma.purchaseOrder.count({ }),
       this.prisma.account.count({ where: { isActive: true } }),
+      this.prisma.$queryRawUnsafe<[{ count: any }]>(`
+        SELECT COUNT(*)::int as count
+        FROM products p
+        LEFT JOIN (
+          SELECT product_id, SUM(quantity) as total_qty
+          FROM inventory
+          WHERE tenant_id = $1
+          GROUP BY product_id
+        ) i ON p.id = i.product_id
+        WHERE p.tenant_id = $1
+          AND p."isActive" = true
+          AND COALESCE(i.total_qty, 0) < p.reorder_threshold
+      `, tenantId),
     ]);
 
     return {
@@ -27,6 +42,7 @@ export class DashboardService {
       projects: projectCount,
       purchaseOrders: purchaseOrderCount,
       accounts: accountCount,
+      lowStock: Number(lowStockResult[0]?.count || 0),
     };
   }
 
@@ -63,5 +79,29 @@ export class DashboardService {
     return activities
       .sort((a, b) => b.time.getTime() - a.time.getTime())
       .slice(0, 10);
+  }
+
+  async getLayout(currentUser: CurrentUserData) {
+    return this.prisma.dashboardLayout.findUnique({
+      where: {
+        userId: currentUser.id,
+      },
+    });
+  }
+
+  async saveLayout(currentUser: CurrentUserData, layout: any) {
+    return this.prisma.dashboardLayout.upsert({
+      where: {
+        userId: currentUser.id,
+      },
+      update: {
+        layout,
+      },
+      create: {
+        userId: currentUser.id,
+        tenantId: currentUser.tenantId,
+        layout,
+      },
+    });
   }
 }

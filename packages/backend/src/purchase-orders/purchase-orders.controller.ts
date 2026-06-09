@@ -18,6 +18,24 @@ interface CreatePurchaseOrderDto {
   lines: CreatePurchaseOrderLineDto[];
 }
 
+interface ReceiveLineDto {
+  lineId: string;
+  receivedQty: number;
+}
+
+interface ReceivePurchaseOrderDto {
+  items: ReceiveLineDto[];
+}
+
+interface ReturnLineDto {
+  lineId: string;
+  returnQty: number;
+}
+
+interface ReturnPurchaseOrderDto {
+  items: ReturnLineDto[];
+}
+
 @Controller('purchase-orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class PurchaseOrdersController {
@@ -51,8 +69,19 @@ export class PurchaseOrdersController {
   @Roles('superadmin', 'admin', 'manager')
   receive(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() receiveDto: ReceivePurchaseOrderDto,
     @CurrentUser() currentUser: CurrentUserData,
   ) {
-    return this.purchaseOrdersService.receive(id, currentUser);
+    return this.purchaseOrdersService.receive(id, receiveDto, currentUser);
+  }
+
+  @Put(':id/return')
+  @Roles('superadmin', 'admin', 'manager')
+  returnItems(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() returnDto: ReturnPurchaseOrderDto,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.purchaseOrdersService.returnItems(id, returnDto, currentUser);
   }
 }

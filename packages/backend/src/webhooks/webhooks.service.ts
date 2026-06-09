@@ -1,11 +1,29 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { DeliveryStatus } from '@prisma/client';
 import { tenantContextStorage } from '../common/tenant-context';
+import { EventBusService } from '../common/event-bus.service';
 
 @Injectable()
-export class WebhooksService {
-  constructor(private prisma: PrismaService) {}
+export class WebhooksService implements OnModuleInit {
+  constructor(
+    private prisma: PrismaService,
+    private eventBus: EventBusService
+  ) {}
+
+  onModuleInit() {
+    this.eventBus.onModelEvent().subscribe((event) => {
+      // Avoid infinite loop if webhook itself is being modified
+      if (event.model === 'WebhookSubscription' || event.model === 'WebhookDelivery') {
+        return;
+      }
+      
+      // Use tenant context for the trigger
+      tenantContextStorage.run({ tenantId: event.tenantId }, () => {
+        this.trigger(event.operation, event.data, event.tenantId).catch(console.error);
+      });
+    });
+  }
 
   async getAll(tenantId: string) {
     return this.prisma.webhookSubscription.findMany({
@@ -138,20 +156,31 @@ export class WebhooksService {
 
   private async deliver(sub: any, delivery: any) {
     try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Webhook-Event': delivery.event,
+        'X-Webhook-Delivery-Id': delivery.id,
+      };
+
+      if (sub.secret) {
+        // Simple HMAC-like header (placeholder for real HMAC if needed)
+        headers['X-Webhook-Signature'] = `sha256=${sub.secret}`;
+      }
+
       const response = await fetch(sub.url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Webhook-Event': delivery.event,
-        },
+        headers,
         body: JSON.stringify(delivery.payload),
       });
+
+      const responseText = await response.text().catch(() => '');
 
       await this.prisma.webhookDelivery.update({
         where: { id: delivery.id },
         data: {
           status: response.ok ? DeliveryStatus.SUCCESS : DeliveryStatus.FAILED,
           responseCode: response.status,
+          responseBody: responseText.substring(0, 1000), // Limit size
           attempts: 1,
           lastAttemptAt: new Date(),
         },

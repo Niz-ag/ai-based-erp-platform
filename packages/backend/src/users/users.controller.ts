@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, UseGuards, ParseUUIDPipe, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -18,7 +18,19 @@ interface UpdateUserDto {
   password?: string;
   firstName?: string;
   lastName?: string;
+  roleId?: string;
   isActive?: boolean;
+  theme?: string;
+  language?: string;
+  notificationPreferences?: {
+    emailEnabled?: boolean;
+    pushEnabled?: boolean;
+    inAppEnabled?: boolean;
+    notifyOnLeaveRequest?: boolean;
+    notifyOnPurchaseOrder?: boolean;
+    notifyOnInventory?: boolean;
+    notifyOnSystem?: boolean;
+  };
 }
 
 @Controller('users')
@@ -26,8 +38,16 @@ interface UpdateUserDto {
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
+  private roleHierarchy: Record<string, number> = {
+    'superadmin': 5,
+    'admin': 4,
+    'manager': 3,
+    'viewer': 2,
+    'user': 1,
+  };
+
   @Get()
-  @Roles('admin', 'superadmin')
+  @Roles('admin', 'superadmin', 'viewer')
   findAll(@CurrentUser() currentUser: CurrentUserData) {
     return this.usersService.findAll(currentUser);
   }
@@ -39,7 +59,7 @@ export class UsersController {
   }
 
   @Get(':id')
-  @Roles('admin', 'superadmin')
+  @Roles('admin', 'superadmin', 'viewer')
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() currentUser: CurrentUserData,
@@ -49,10 +69,27 @@ export class UsersController {
 
   @Post()
   @Roles('admin', 'superadmin')
-  create(
+  async create(
     @Body() createUserDto: CreateUserDto,
     @CurrentUser() currentUser: CurrentUserData,
   ) {
+    // Role Hierarchy Check
+    const userRole = currentUser.role?.name?.toLowerCase() || 'user';
+    const userLevel = this.roleHierarchy[userRole] || 0;
+
+    const allRoles = await this.usersService.findAllRoles();
+    const targetRole = allRoles.find(r => r.id === createUserDto.roleId);
+    
+    if (!targetRole) {
+      throw new NotFoundException('Target role not found');
+    }
+
+    const targetLevel = this.roleHierarchy[targetRole.name.toLowerCase()] || 0;
+
+    if (targetLevel > userLevel) {
+      throw new ForbiddenException(`Security violation: Cannot assign role '${targetRole.name}' which is higher than your own role.`);
+    }
+
     return this.usersService.create(
       {
         email: createUserDto.email,
@@ -67,7 +104,7 @@ export class UsersController {
 
   @Put(':id')
   @Roles('admin', 'superadmin')
-  update(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() currentUser: CurrentUserData,
@@ -78,6 +115,32 @@ export class UsersController {
     if (updateUserDto.firstName) updateData.firstName = updateUserDto.firstName;
     if (updateUserDto.lastName) updateData.lastName = updateUserDto.lastName;
     if (updateUserDto.isActive !== undefined) updateData.isActive = updateUserDto.isActive;
+    if (updateUserDto.theme) updateData.theme = updateUserDto.theme;
+    if (updateUserDto.language) updateData.language = updateUserDto.language;
+    if (updateUserDto.notificationPreferences) {
+      updateData.notificationPreference = updateUserDto.notificationPreferences;
+    }
+
+    // Role Hierarchy Check for updates
+    if (updateUserDto.roleId) {
+      const userRole = currentUser.role?.name?.toLowerCase() || 'user';
+      const userLevel = this.roleHierarchy[userRole] || 0;
+
+      const allRoles = await this.usersService.findAllRoles();
+      const targetRole = allRoles.find(r => r.id === updateUserDto.roleId);
+      
+      if (!targetRole) {
+        throw new NotFoundException('Target role not found');
+      }
+
+      const targetLevel = this.roleHierarchy[targetRole.name.toLowerCase()] || 0;
+
+      if (targetLevel > userLevel) {
+        throw new ForbiddenException(`Security violation: Cannot update user to role '${targetRole.name}' which is higher than your own role.`);
+      }
+      
+      updateData.role = { connect: { id: updateUserDto.roleId } };
+    }
 
     return this.usersService.update(id, updateData, currentUser);
   }

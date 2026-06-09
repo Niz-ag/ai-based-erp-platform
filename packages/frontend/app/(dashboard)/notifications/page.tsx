@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { notificationsApi } from "@/lib/api";
 import { Bell, Check, Trash2, Settings, Mail, MessageSquare, AlertCircle, CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 type TabType = "list" | "preferences";
 
@@ -17,10 +18,33 @@ export default function NotificationsPage() {
     queryFn: () => notificationsApi.getAll(),
   });
 
-  const { data: preferencesData, isLoading: preferencesLoading } = useQuery({
+  const { data: preferencesData, isLoading: preferencesLoading, refetch: refetchPrefs } = useQuery({
     queryKey: ["notification-preferences"],
     queryFn: () => notificationsApi.getPreferences(),
   });
+
+  const [localPrefs, setLocalPrefs] = useState<any>(null);
+
+  React.useEffect(() => {
+    if (preferencesData) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLocalPrefs(preferencesData);
+    }
+  }, [preferencesData]);
+
+  const handleUpdatePrefs = async () => {
+    if (!localPrefs) return;
+    setIsSubmitting(true);
+    try {
+      await notificationsApi.updatePreferences(localPrefs);
+      toast.success("Preferences saved successfully");
+      refetchPrefs();
+    } catch (err) {
+      toast.error("Failed to save preferences");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleMarkRead = async (id: string) => {
     try {
@@ -120,16 +144,38 @@ export default function NotificationsPage() {
             <div className="space-y-4">
               <div className="flex justify-between items-center">
                 <span>Email Notifications</span>
-                <input type="checkbox" className="h-5 w-5" defaultChecked />
+                <input 
+                  type="checkbox" 
+                  className="h-5 w-5" 
+                  checked={localPrefs?.emailEnabled ?? false} 
+                  onChange={(e) => setLocalPrefs({ ...localPrefs, emailEnabled: e.target.checked })}
+                />
               </div>
               <div className="flex justify-between items-center">
                 <span>Push Notifications</span>
-                <input type="checkbox" className="h-5 w-5" defaultChecked />
+                <input 
+                  type="checkbox" 
+                  className="h-5 w-5" 
+                  checked={localPrefs?.pushEnabled ?? false}
+                  onChange={(e) => setLocalPrefs({ ...localPrefs, pushEnabled: e.target.checked })}
+                />
+              </div>
+              <div className="flex justify-between items-center">
+                <span>In-App Notifications</span>
+                <input 
+                  type="checkbox" 
+                  className="h-5 w-5" 
+                  checked={localPrefs?.inAppEnabled ?? false}
+                  onChange={(e) => setLocalPrefs({ ...localPrefs, inAppEnabled: e.target.checked })}
+                />
               </div>
             </div>
           </div>
           <div className="flex justify-end">
-            <Button onClick={() => alert("Preferences saved")}>Save Changes</Button>
+            <Button onClick={handleUpdatePrefs} disabled={isSubmitting}>
+              {isSubmitting ? <Loader2 className="animate-spin h-4 w-4 mr-2" /> : null}
+              Save Changes
+            </Button>
           </div>
         </div>
       )}

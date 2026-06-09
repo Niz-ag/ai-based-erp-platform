@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Param, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, ParseUUIDPipe, Res, Patch, Delete } from '@nestjs/common';
 import { PayrollService } from './payroll.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.decorator';
+import { Response } from 'express';
 
 @Controller('payroll')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,6 +38,15 @@ export class PayrollController {
     return this.payrollService.approveRun(id);
   }
 
+  @Post('runs/:id/pay')
+  @Roles('superadmin', 'admin', 'manager')
+  payRun(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.payrollService.payRun(id, currentUser);
+  }
+
   @Get('runs/:id/payslips')
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   getPayslips(@Param('id', ParseUUIDPipe) id: string) {
@@ -47,6 +57,24 @@ export class PayrollController {
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   getPayslip(@Param('id', ParseUUIDPipe) id: string) {
     return this.payrollService.getPayslip(id);
+  }
+
+  @Get('payslips/:id/download')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  async downloadPayslip(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.payrollService.generatePayslipPdf(id);
+    const payslip = await this.payrollService.getPayslip(id);
+    
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=payslip-${payslip.employee.employeeCode}-${payslip.run.period}.pdf`,
+      'Content-Length': buffer.length,
+    });
+
+    res.end(buffer);
   }
 
   @Get('tax-slabs')
@@ -62,5 +90,24 @@ export class PayrollController {
     @CurrentUser() currentUser: CurrentUserData,
   ) {
     return this.payrollService.createTaxSlab(body, currentUser.tenantId);
+  }
+
+  @Patch('tax-slabs/:id')
+  @Roles('superadmin', 'admin', 'manager')
+  updateTaxSlab(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: { min: number; max: number; rate: number; fixed: number },
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.payrollService.updateTaxSlab(id, body, currentUser.tenantId);
+  }
+
+  @Delete('tax-slabs/:id')
+  @Roles('superadmin', 'admin')
+  deleteTaxSlab(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.payrollService.deleteTaxSlab(id, currentUser.tenantId);
   }
 }

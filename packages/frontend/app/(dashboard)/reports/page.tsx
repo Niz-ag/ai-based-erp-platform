@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
-import { Plus, FileText, Calendar, Play, Trash2, Loader2 } from "lucide-react";
+import { Plus, FileText, Calendar, Play, Trash2, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { reportsApi } from "@/lib/api";
 
@@ -15,6 +15,9 @@ const typeColors: Record<string, string> = {
   HR: "bg-blue-100 text-blue-800",
   Operations: "bg-orange-100 text-orange-800",
   Projects: "bg-purple-100 text-purple-800",
+  employees: "bg-blue-100 text-blue-800",
+  inventory: "bg-orange-100 text-orange-800",
+  pos: "bg-purple-100 text-purple-800",
 };
 
 const reportTypes = [
@@ -39,18 +42,58 @@ export default function ReportsPage() {
     queryFn: () => reportsApi.getAll(),
   });
 
-  const handleGenerate = async (reportId: string) => {
+  const reportData = reports || [];
+
+  const handleCreateSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.type) {
+      toast.error("Please select a report type");
+      return;
+    }
+    
+    setIsSubmitting(true);
     try {
-      const report = reportData.find((r: any) => r.id === reportId);
-      await reportsApi.generate(report?.type || "Financial");
-      toast.success("Report generation started");
+      await reportsApi.createSchedule(formData as any);
+      toast.success("Report schedule created");
+      setIsModalOpen(false);
+      setFormData({ type: "", schedule: "monthly" });
       refetch();
-    } catch (err) {
-      toast.error("Failed to generate report");
+    } catch (err: any) {
+      toast.error("Failed to create schedule", { description: err.message });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const reportData = reports | [];
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleDownload = async (id: string, name: string) => {
+    try {
+      const blob = await reportsApi.download(id);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/\s+/g, '_')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      toast.error("Failed to download report");
+    }
+  };
+
+  const handleGenerate = async (id: string) => {
+    try {
+      const report = reportData?.find((r: any) => r.id === id);
+      if (!report) return;
+      await reportsApi.generate(report.type);
+      toast.success("Report generation triggered");
+      refetch();
+    } catch (err) {
+      toast.error("Failed to trigger report generation");
+    }
+  };
   
   const dailyCount = reportData.filter((r: any) => r.schedule === 'daily').length;
   const weeklyCount = reportData.filter((r: any) => r.schedule === 'weekly').length;
@@ -87,8 +130,8 @@ export default function ReportsPage() {
           </div>
           <div className="flex justify-end gap-3 mt-6">
             <Button variant="ghost" type="button" onClick={() => setIsModalOpen(false)}>Cancel</Button>
-            <Button type="submit" onClick={() => { setIsModalOpen(false); toast.info("Report scheduling coming soon"); }}>
-              Create Schedule
+            <Button type="submit" onClick={handleCreateSchedule} disabled={isSubmitting}>
+              {isSubmitting ? "Creating..." : "Create Schedule"}
             </Button>
           </div>
         </form>

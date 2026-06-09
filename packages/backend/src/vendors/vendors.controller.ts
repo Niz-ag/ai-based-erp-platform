@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, Param } from '@nestjs/common';
 import { VendorsService } from './vendors.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -22,6 +22,18 @@ export class VendorsController {
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   findAll(@CurrentUser() currentUser: CurrentUserData) {
     return this.vendorsService.findAll(currentUser);
+  }
+
+  @Get(':id')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  findOne(@Param('id') id: string, @CurrentUser() currentUser: CurrentUserData) {
+    return this.vendorsService.findOne(id, currentUser);
+  }
+
+  @Get(':id/performance')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  getPerformance(@Param('id') id: string, @CurrentUser() currentUser: CurrentUserData) {
+    return this.vendorsService.getPerformance(id, currentUser);
   }
 
   @Post()

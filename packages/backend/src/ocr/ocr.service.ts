@@ -1,13 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import * as Tesseract from 'tesseract.js';
+import { PrismaService } from '../common/prisma.service';
+import { FinanceService } from '../finance/finance.service';
+import { CurrentUserData } from '../common/decorators/current-user.decorator';
 
 export interface InvoiceData {
   vendor?: string;
+  vendorId?: string;
   invoiceNumber?: string;
   date?: string;
   dueDate?: string;
   total?: number;
   tax?: number;
+  accountId?: string;
+  journalEntryId?: string;
   items: Array<{
     description: string;
     quantity: number;
@@ -19,15 +25,99 @@ export interface InvoiceData {
 
 @Injectable()
 export class OcrService {
+  private readonly logger = new Logger(OcrService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private financeService: FinanceService,
+  ) {}
   
   async extractText(buffer: Buffer): Promise<string> {
     try {
       const { data: { text } } = await Tesseract.recognize(buffer, 'eng');
-      return text || this.generateDemoInvoiceText();
+      if (!text || text.trim().length === 0) {
+        throw new BadRequestException('OCR extraction failed: No text detected in the uploaded image.');
+      }
+      return text;
     } catch (error) {
-      console.error('OCR Extraction failed:', error);
-      return this.generateDemoInvoiceText();
+      this.logger.error('OCR Extraction failed:', error);
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('OCR extraction failed: The image could not be processed. Please ensure it is clear and contains text.');
     }
+  }
+
+  async mapAndCreateDraft(text: string, currentUser: CurrentUserData): Promise<InvoiceData> {
+    const invoice = this.parseInvoiceData(text);
+
+    // 1. Map Vendor
+    if (invoice.vendor) {
+      const vendor = await this.prisma.vendor.findFirst({
+        where: {
+          name: { contains: invoice.vendor, mode: 'insensitive' },
+        },
+      });
+      if (vendor) {
+        invoice.vendorId = vendor.id;
+      }
+    }
+
+    // 2. Map Account
+    const expenseAccount = await this.prisma.account.findFirst({
+      where: { 
+        OR: [
+          { code: '5100' },
+          { type: 'EXPENSE', name: { contains: 'Supply', mode: 'insensitive' } },
+          { type: 'EXPENSE' }
+        ]
+      },
+    });
+
+    if (expenseAccount) {
+      invoice.accountId = expenseAccount.id;
+    }
+
+    // 3. Create Draft Journal Entry if we have total and account
+    if (invoice.total && invoice.accountId) {
+      const liabilityAccount = await this.prisma.account.findFirst({
+        where: { code: '2000' },
+      });
+      const taxAccount = await this.prisma.account.findFirst({
+        where: { code: '2100' }
+      });
+
+      if (liabilityAccount && taxAccount) {
+        try {
+          const taxAmount = invoice.total * 0.10;
+          const entry = await this.financeService.createJournalEntry({
+            description: `OCR Invoice: ${invoice.vendor || 'Unknown'} - ${invoice.invoiceNumber || 'No Number'}`,
+            date: invoice.date ? new Date(invoice.date) : new Date(),
+            lines: [
+              {
+                accountId: invoice.accountId,
+                debit: invoice.total,
+                description: `Expense from invoice ${invoice.invoiceNumber || ''}`,
+              },
+              {
+                accountId: taxAccount.id,
+                debit: taxAmount,
+                description: `Tax liability from invoice ${invoice.invoiceNumber || ''}`,
+              },
+              {
+                accountId: liabilityAccount.id,
+                credit: invoice.total + taxAmount,
+                description: `Accounts Payable from invoice ${invoice.invoiceNumber || ''}`,
+              },
+            ],
+          }, currentUser);
+          
+          invoice.journalEntryId = entry.id;
+        } catch (error) {
+          this.logger.error('Failed to create draft journal entry:', error);
+        }
+      }
+    }
+
+    return invoice;
   }
 
   parseInvoiceData(text: string): InvoiceData {
@@ -116,33 +206,5 @@ export class OcrService {
     }
 
     return invoice;
-  }
-
-  private generateDemoInvoiceText(): string {
-    return `ACME Corporation
-123 Business Rd
-New York, NY 10001
-
-INVOICE #INV-2024-0015
-Date: 05/15/2024
-Due Date: 06/15/2024
-
-Bill To:
-John Smith
-456 Customer Ave
-Los Angeles, CA 90001
-
-Items:
-2 x $150.00 Web Development Services
-1 x $75.00 Domain Registration
-3 x $25.00 Email Hosting
-
-Subtotal: $475.00
-TAX (10%): $47.50
-
-TOTAL: $522.50
-
-Payment due within 30 days.
-Thank you for your business!`;
   }
 }

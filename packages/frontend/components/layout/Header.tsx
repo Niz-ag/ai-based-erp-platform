@@ -6,6 +6,8 @@ import { Menu, LogOut, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { cn } from "@/lib/utils";
+import { GlobalSearch } from "./GlobalSearch";
+import { NotificationBell } from "./NotificationBell";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
@@ -41,9 +43,14 @@ export function Header({ onToggleSidebar }: HeaderProps) {
           </Link>
         </div>
 
+        <div className="flex-1 max-w-md ml-8 hidden md:block">
+          <GlobalSearch />
+        </div>
+
         <div className="ml-auto flex items-center gap-2">
           {user ? (
             <div className="flex items-center gap-3">
+              <NotificationBell />
               <div className="flex items-center gap-2 text-sm">
                 <UserIcon className="h-4 w-4" />
                 <span className="hidden sm:inline">{user.name}</span>

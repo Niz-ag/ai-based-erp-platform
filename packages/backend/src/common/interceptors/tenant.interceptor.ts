@@ -11,9 +11,23 @@ import { tenantContextStorage } from '../tenant-context';
 export class TenantInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
     const request = context.switchToHttp().getRequest();
-    const user = request.user;
+    let user = request.user;
 
-    // If user is authenticated, populate the tenant context
+    // If user is not yet populated by guard (early failure), try to extract from JWT
+    if (!user && request.headers?.authorization?.startsWith('Bearer ')) {
+      try {
+        const token = request.headers.authorization.split(' ')[1];
+        const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64').toString());
+        user = {
+          id: payload.sub || payload.id || payload.userId,
+          tenantId: payload.tenantId,
+        };
+      } catch (e) {
+        // Ignore parsing errors
+      }
+    }
+
+    // If we have tenant info, populate the tenant context
     if (user && user.tenantId) {
       return new Observable((subscriber) => {
         tenantContextStorage.run(

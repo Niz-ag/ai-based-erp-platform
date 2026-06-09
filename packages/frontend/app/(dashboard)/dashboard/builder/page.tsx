@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState, useCallback, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Plus, GripVertical, X, BarChart3, PieChart, LineChart, Table, Loader2 } from "lucide-react";
+import { Plus, GripVertical, X, BarChart3, PieChart, LineChart, Table, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
-import { dashboardApi } from "@/lib/api";
+import { dashboardApi, productsApi } from "@/lib/api";
 import { 
   BarChart, Bar, PieChart as RePieChart, Pie, LineChart as ReLineChart, Line, 
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
@@ -34,23 +34,72 @@ const WIDGET_TYPES = [
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function DashboardBuilder() {
+  const queryClient = useQueryClient();
+
   const { data: stats, isLoading: statsLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: () => dashboardApi.getStats(),
   });
 
-  const [widgets, setWidgets] = useState<DashboardWidget[]>([
-    { id: "1", type: "stat", title: "Total Employees", dataKey: "employees", position: { x: 0, y: 0 }, size: { width: 1, height: 1 } },
-    { id: "2", type: "stat", title: "Active Projects", dataKey: "projects", position: { x: 1, y: 0 }, size: { width: 1, height: 1 } },
-    { id: "3", type: "bar", title: "Resource Distribution", position: { x: 0, y: 1 }, size: { width: 2, height: 2 } },
-    { id: "4", type: "pie", title: "Entity Breakdown", position: { x: 2, y: 0 }, size: { width: 1, height: 2 } },
-  ]);
+  const { data: savedLayout, isLoading: layoutLoading } = useQuery({
+    queryKey: ["dashboard-layout"],
+    queryFn: () => dashboardApi.getLayout(),
+  });
+
+  const { data: products, isLoading: productsLoading } = useQuery({
+    queryKey: ["products-top"],
+    queryFn: () => productsApi.getAll(),
+  });
+
+  const [widgets, setWidgets] = useState<DashboardWidget[]>([]);
+
+  // Initialize widgets from saved layout or defaults
+  useEffect(() => {
+    if (savedLayout?.layout) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setWidgets(savedLayout.layout);
+    } else if (!layoutLoading && widgets.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setWidgets([
+        { id: "1", type: "stat", title: "Total Employees", dataKey: "employees", position: { x: 0, y: 0 }, size: { width: 1, height: 1 } },
+        { id: "2", type: "stat", title: "Active Projects", dataKey: "projects", position: { x: 1, y: 0 }, size: { width: 1, height: 1 } },
+        { id: "5", type: "stat", title: "Low Stock Items", dataKey: "lowStock", position: { x: 2, y: 0 }, size: { width: 1, height: 1 } },
+        { id: "3", type: "bar", title: "Resource Distribution", position: { x: 0, y: 1 }, size: { width: 2, height: 2 } },
+        { id: "4", type: "pie", title: "Entity Breakdown", position: { x: 2, y: 1 }, size: { width: 1, height: 2 } },
+      ]);
+    }
+  }, [savedLayout, layoutLoading]);
+
+  const { mutate: saveLayout, isPending: isSaving } = useMutation({
+    mutationFn: (newLayout: DashboardWidget[]) => dashboardApi.saveLayout(newLayout),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dashboard-layout"] });
+    },
+    onError: () => {
+      toast.error("Failed to save layout");
+    }
+  });
+
+  // Debounced auto-save
+  useEffect(() => {
+    if (widgets.length === 0 && !savedLayout) return;
+    
+    const handler = setTimeout(() => {
+      // Only save if it's different from what we loaded
+      if (JSON.stringify(widgets) !== JSON.stringify(savedLayout?.layout)) {
+        saveLayout(widgets);
+      }
+    }, 2000);
+
+    return () => clearTimeout(handler);
+  }, [widgets, saveLayout, savedLayout]);
 
   const chartData = useMemo(() => [
     { name: 'Employees', value: stats?.employees || 0 },
     { name: 'Projects', value: stats?.projects || 0 },
     { name: 'Accounts', value: stats?.accounts || 0 },
     { name: 'Orders', value: stats?.purchaseOrders || 0 },
+    { name: 'Low Stock', value: stats?.lowStock || 0 },
   ], [stats]);
 
   const [draggedWidget, setDraggedWidget] = useState<string | null>(null);
@@ -87,10 +136,11 @@ export default function DashboardBuilder() {
   }, [widgets]);
 
   const renderWidgetContent = (widget: DashboardWidget) => {
-    if (statsLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin h-6 w-6 text-blue-500" /></div>;
+    if (statsLoading || layoutLoading) return <div className="flex items-center justify-center h-full"><Loader2 className="animate-spin h-6 w-6 text-blue-500" /></div>;
 
     if (widget.type === "stat") {
-      const value = widget.dataKey ? (stats as any)?.[widget.dataKey] : 0;
+      const rawValue = widget.dataKey ? (stats as any)?.[widget.dataKey] : 0;
+      const value = (rawValue !== undefined && rawValue !== null) ? rawValue : "0";
       return (
         <div className="flex flex-col items-center justify-center h-full py-4">
           <div className="text-4xl font-bold text-blue-600">{value}</div>
@@ -154,9 +204,44 @@ export default function DashboardBuilder() {
       );
     }
 
+    if (widget.type === "table") {
+      const topProducts = products?.slice(0, 5) || [];
+      return (
+        <div className="w-full overflow-hidden rounded-md border text-xs">
+          <table className="w-full text-left">
+            <thead className="bg-gray-50 font-bold uppercase text-gray-500">
+              <tr>
+                <th className="px-3 py-2">Product</th>
+                <th className="px-3 py-2">SKU</th>
+                <th className="px-3 py-2 text-right">Price</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {productsLoading ? (
+                <tr><td colSpan={3} className="p-4 text-center"><Loader2 className="animate-spin h-4 w-4 mx-auto" /></td></tr>
+              ) : topProducts.length > 0 ? (
+                topProducts.map((p: any) => (
+                  <tr key={p.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 font-medium truncate max-w-[100px]">{p.name}</td>
+                    <td className="px-3 py-2 text-gray-500">{p.sku}</td>
+                    <td className="px-3 py-2 text-right">${Number(p.unitPrice).toFixed(2)}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr><td colSpan={3} className="p-4 text-center text-muted-foreground">No data</td></tr>
+              )}
+            </tbody>
+          </table>
+          <div className="bg-gray-50 px-3 py-1 text-[10px] text-muted-foreground text-center border-t">
+            Showing top {topProducts.length} entries
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center justify-center h-full text-muted-foreground italic text-sm">
-        Data grid view coming soon...
+        Unsupported widget type
       </div>
     );
   };
@@ -175,10 +260,13 @@ export default function DashboardBuilder() {
           <h1 className="text-3xl font-bold tracking-tight">Dashboard Builder</h1>
           <p className="text-muted-foreground">Architect your intelligence workspace with live ERP data</p>
         </div>
-        <Button onClick={() => setIsAdding(!isAdding)} className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Widget
-        </Button>
+        <div className="flex items-center gap-2">
+          {isSaving && <div className="flex items-center text-xs text-muted-foreground animate-pulse"><Save className="h-3 w-3 mr-1" /> Saving...</div>}
+          <Button onClick={() => setIsAdding(!isAdding)} className="bg-blue-600 hover:bg-blue-700">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Widget
+          </Button>
+        </div>
       </div>
 
       {isAdding && (

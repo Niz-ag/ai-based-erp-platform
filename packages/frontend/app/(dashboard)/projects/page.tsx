@@ -1,20 +1,38 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearchParams } from "next/navigation";
 import { projectsApi } from "@/lib/api";
-import { FolderKanban, Flag, Calendar, Plus, ChevronRight, X, Loader2 } from "lucide-react";
+import { FolderKanban, Flag, Calendar, Plus, ChevronRight, X, Loader2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { GanttChart } from "./components/GanttChart";
 import { ProjectDetails } from "./components/ProjectDetails";
+import { WidgetErrorBoundary } from "@/components/ui/WidgetErrorBoundary";
 
-type TabType = "projects" | "gantt" | "milestones";
+type TabType = "projects" | "gantt" | "milestones" | "resources";
 
 export default function ProjectsPage() {
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<TabType>("projects");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const projectId = searchParams.get("projectId");
+    const milestoneId = searchParams.get("milestoneId");
+    
+    if (projectId) {
+      setTimeout(() => {
+        setSelectedProjectId(projectId);
+        if (milestoneId) {
+          setActiveTab("milestones");
+        }
+      }, 0);
+    }
+  }, [searchParams]);
+
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [isMilestoneModalOpen, setIsMilestoneModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,6 +51,7 @@ export default function ProjectsPage() {
     description: "",
     dueDate: new Date().toISOString().split('T')[0],
     projectId: "",
+    amount: 0,
   });
 
   const { data: projectsData, isLoading: projectsLoading, refetch: refetchProjects } = useQuery({
@@ -43,6 +62,12 @@ export default function ProjectsPage() {
   const { data: milestonesData, isLoading: milestonesLoading, refetch: refetchMilestones } = useQuery({
     queryKey: ["milestones"],
     queryFn: () => projectsApi.getMilestones(),
+  });
+
+  const { data: resourcesData, isLoading: resourcesLoading } = useQuery({
+    queryKey: ["resource-workload"],
+    queryFn: () => projectsApi.getResourceWorkload(),
+    enabled: activeTab === "resources",
   });
 
   const handleAddProject = async (e: React.FormEvent) => {
@@ -77,6 +102,7 @@ export default function ProjectsPage() {
         description: "",
         dueDate: new Date().toISOString().split('T')[0],
         projectId: "",
+        amount: 0,
       });
       refetchMilestones();
     } catch (err: any) {
@@ -96,11 +122,11 @@ export default function ProjectsPage() {
       toast.error("Failed to delete project");
     }
   };
-
   const tabs = [
-    { id: "projects" as TabType, label: "Projects List", icon: FolderKanban },
-    { id: "gantt" as TabType, label: "Gantt Chart", icon: Calendar },
+    { id: "projects" as TabType, label: "Projects", icon: FolderKanban },
+    { id: "gantt" as TabType, label: "Gantt Chart", icon: GanttChart },
     { id: "milestones" as TabType, label: "Milestones", icon: Flag },
+    { id: "resources" as TabType, label: "Resources", icon: Users },
   ];
 
   // Generate Gantt data for placeholder
@@ -263,6 +289,16 @@ export default function ProjectsPage() {
               onChange={e => setMilestoneData({ ...milestoneForm, dueDate: e.target.value })}
             />
           </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Billing Amount (Optional)</label>
+            <input
+              type="number"
+              className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="5000"
+              value={milestoneForm.amount}
+              onChange={e => setMilestoneData({ ...milestoneForm, amount: Number(e.target.value) })}
+            />
+          </div>
           <div className="flex justify-end gap-3 mt-6">
             <Button variant="ghost" type="button" onClick={() => setIsMilestoneModalOpen(false)}>
               Cancel
@@ -350,11 +386,13 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {/* Gantt Chart Tab */}
+      {/* Gantt Chart Tab Content */}
       {activeTab === "gantt" && (
-        <div className="space-y-4">
-          <GanttChart projects={projectsData} />
-        </div>
+        <WidgetErrorBoundary title="Gantt Chart">
+          <div className="space-y-4">
+            <GanttChart projects={projectsData} />
+          </div>
+        </WidgetErrorBoundary>
       )}
 
       {/* Milestones Tab Content */}
@@ -425,6 +463,61 @@ export default function ProjectsPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Resource Workload Tab Content */}
+      {activeTab === "resources" && (
+        <div className="space-y-4">
+          <div className="rounded-lg border bg-white shadow-sm p-6">
+            <h2 className="text-lg font-semibold mb-4">Employee Capacity & Workload</h2>
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {resourcesLoading ? (
+                <div className="col-span-full text-center py-8">
+                  <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" />
+                </div>
+              ) : resourcesData && resourcesData.length > 0 ? (
+                resourcesData.map((resource: any) => (
+                  <div key={resource.userId} className="p-4 rounded-lg border bg-gray-50 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h4 className="font-medium">{resource.userName}</h4>
+                        <p className="text-xs text-muted-foreground">{resource.email}</p>
+                      </div>
+                      <span className={`text-xs font-bold px-2 py-1 rounded ${
+                        resource.workloadPercentage > 90 ? 'bg-red-100 text-red-700' :
+                        resource.workloadPercentage > 70 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-green-100 text-green-700'
+                      }`}>
+                        {resource.workloadPercentage}%
+                      </span>
+                    </div>
+                    
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs">
+                        <span>{resource.assignedHours}h assigned</span>
+                        <span>{resource.capacity}h capacity</span>
+                      </div>
+                      <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full transition-all ${
+                            resource.workloadPercentage > 100 ? 'bg-red-500' :
+                            resource.workloadPercentage > 80 ? 'bg-orange-500' :
+                            'bg-blue-500'
+                          }`}
+                          style={{ width: `${Math.min(resource.workloadPercentage, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="col-span-full text-center py-8 text-muted-foreground">
+                  No resource data available.
+                </div>
+              )}
             </div>
           </div>
         </div>

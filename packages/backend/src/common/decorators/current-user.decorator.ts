@@ -5,6 +5,7 @@ export interface CurrentUserData {
   email: string;
   tenantId: string;
   roleId: string;
+  vendorId?: string;
   role: { name: string; permissions: any };
 }
 

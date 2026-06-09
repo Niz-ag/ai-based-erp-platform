@@ -11,24 +11,42 @@ export class KeycloakController {
 
   @Get('login')
   @Redirect()
-  ssoLogin() {
-    if (!this.keycloakService.isEnabled()) {
-      return { url: '/api/auth/login' };
+  async ssoLogin(@Query('tenantId') tenantId: string) {
+    if (!tenantId) {
+      return { url: '/login?error=no_tenant_id' };
     }
-    const state = Buffer.from(JSON.stringify({ timestamp: Date.now() })).toString('base64');
-    return { url: this.keycloakService.getLoginUrl(state) };
+
+    if (!(await this.keycloakService.isEnabled(tenantId))) {
+      return { url: '/login?error=sso_not_configured' };
+    }
+
+    const state = Buffer.from(JSON.stringify({ 
+      tenantId, 
+      timestamp: Date.now() 
+    })).toString('base64');
+
+    const loginUrl = await this.keycloakService.getLoginUrl(tenantId, state);
+    return { url: loginUrl };
   }
 
   @Get('callback')
   @Redirect()
   async ssoCallback(@Query('code') code: string, @Query('state') state: string) {
-    if (!this.keycloakService.isEnabled()) {
+    let tenantId: string;
+    try {
+      const decodedState = JSON.parse(Buffer.from(state, 'base64').toString());
+      tenantId = decodedState.tenantId;
+    } catch (e) {
+      return { url: '/login?error=invalid_state' };
+    }
+
+    if (!tenantId || !(await this.keycloakService.isEnabled(tenantId))) {
       return { url: '/login?error=sso_not_configured' };
     }
 
     try {
-      const tokens = await this.keycloakService.getToken(code);
-      const userInfo = await this.keycloakService.getUserInfo(tokens.access_token);
+      const tokens = await this.keycloakService.getToken(tenantId, code);
+      const userInfo = await this.keycloakService.getUserInfo(tenantId, tokens.access_token);
 
       // Create or update user in our system
       const user = await this.authService.findOrCreateFromSSO({
@@ -51,26 +69,33 @@ export class KeycloakController {
 
   @Get('saml')
   @Redirect()
-  samlLogin() {
-    if (!this.keycloakService.isEnabled()) {
+  async samlLogin(@Query('tenantId') tenantId: string) {
+    if (!tenantId || !(await this.keycloakService.isEnabled(tenantId))) {
       return { url: '/api/auth/login' };
     }
-    return { url: this.keycloakService.getSamlLoginUrl() };
+    const samlUrl = await this.keycloakService.getSamlLoginUrl(tenantId);
+    return { url: samlUrl };
   }
 
   @Get('logout')
   @Redirect()
-  async ssoLogout(@Query('refresh_token') refreshToken: string) {
-    if (this.keycloakService.isEnabled() && refreshToken) {
-      await this.keycloakService.logout(refreshToken);
+  async ssoLogout(
+    @Query('refresh_token') refreshToken: string,
+    @Query('tenantId') tenantId: string
+  ) {
+    if (tenantId && (await this.keycloakService.isEnabled(tenantId)) && refreshToken) {
+      await this.keycloakService.logout(tenantId, refreshToken);
     }
     return { url: '/login?logged_out=true' };
   }
 
   @Get('status')
-  getSSOStatus() {
+  async getSSOStatus(@Query('tenantId') tenantId: string) {
+    if (!tenantId) {
+      return { enabled: false };
+    }
     return {
-      enabled: this.keycloakService.isEnabled(),
+      enabled: await this.keycloakService.isEnabled(tenantId),
       provider: 'keycloak',
     };
   }

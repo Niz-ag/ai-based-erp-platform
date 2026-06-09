@@ -8,6 +8,7 @@ import {
   Param,
   Query,
   UseGuards,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -65,6 +66,14 @@ export class ProjectsController {
     return this.projectsService.deleteProject(id, currentUser);
   }
 
+  // ============ Resources ============
+
+  @Get('resources/workload')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  getResourceWorkload(@CurrentUser() currentUser: CurrentUserData) {
+    return this.projectsService.getResourceWorkload(currentUser);
+  }
+
   // ============ Tasks (within project) ============
 
   @Post(':id/tasks')
@@ -107,6 +116,15 @@ export class ProjectsController {
     return this.projectsService.updateMilestone(id, updateMilestoneDto, currentUser);
   }
 
+  @Delete('milestones/:id')
+  @Roles('superadmin', 'admin', 'manager')
+  deleteMilestone(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.projectsService.deleteMilestone(id, currentUser);
+  }
+
   // ============ Budget ============
 
   @Get(':id/budget')
@@ -143,5 +161,14 @@ export class TasksController {
     @CurrentUser() currentUser: CurrentUserData,
   ) {
     return this.projectsService.updateTask(id, updateTaskDto, currentUser);
+  }
+
+  @Delete(':id')
+  @Roles('superadmin', 'admin', 'manager')
+  deleteTask(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: CurrentUserData,
+  ) {
+    return this.projectsService.deleteTask(id, currentUser);
   }
 }

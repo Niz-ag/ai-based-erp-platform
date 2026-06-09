@@ -34,6 +34,17 @@ export class ForecastService {
     return { success: true };
   }
 
+  async bulkHistoricalData(data: { sku: string; quantity: number; date: string }[], currentUser: CurrentUserData) {
+    const tenantId = tenantContextStorage.getStore()?.tenantId;
+    return this.prisma.skuHistory.createMany({
+      data: data.map(item => ({
+        ...item,
+        date: new Date(item.date),
+        tenantId,
+      })),
+    });
+  }
+
   async forecast(sku: string, periods: number = 12, currentUser: CurrentUserData): Promise<ForecastResult> {
     const historyData = await this.prisma.skuHistory.findMany({
       where: { sku },
@@ -57,80 +68,17 @@ export class ForecastService {
         }),
       });
 
-      if (!response.ok) throw new Error('ML Service failed');
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`ML Service failed with status ${response.status}: ${errorText}`);
+      }
       
       const result = await response.json() as ForecastResult;
       return result;
     } catch (error) {
-      console.warn('ML Service unreachable, falling back to basic demo logic:', error.message);
-      return this.generateDemoForecast(sku, periods);
+      console.error('ML Service Error:', error.message);
+      throw new Error(`Forecast unavailable: ${error.message}. Please ensure the ML microservice is healthy.`);
     }
-  }
-
-  private generateDemoForecast(sku: string, periods: number): ForecastResult {
-    const forecasts = [];
-    const baseValue = Math.floor(Math.random() * 100) + 50;
-    const trend = Math.random() > 0.5 ? 'increasing' : 'stable';
-    
-    for (let i = 1; i <= periods; i++) {
-      const date = new Date();
-      date.setMonth(date.getMonth() + i);
-      const predicted = Math.round(baseValue * (1.02 ** i));
-      
-      forecasts.push({
-        period: date.toISOString().slice(0, 7),
-        predicted,
-        confidence: {
-          lower: Math.round(predicted * 0.8),
-          upper: Math.round(predicted * 1.2),
-        },
-      });
-    }
-
-    return { sku, forecasts, trend: trend as any, seasonality: 'Legacy fallback active' };
-  }
-
-  private calculateTrend(values: number[]): 'increasing' | 'decreasing' | 'stable' {
-    if (values.length < 2) return 'stable';
-    
-    const n = values.length;
-    let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
-    
-    for (let i = 0; i < n; i++) {
-      sumX += i;
-      sumY += values[i];
-      sumXY += i * values[i];
-      sumX2 += i * i;
-    }
-    
-    const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
-    const avg = sumY / n;
-    
-    if (slope / avg > 0.05) return 'increasing';
-    if (slope / avg < -0.05) return 'decreasing';
-    return 'stable';
-  }
-
-  private detectSeasonality(values: number[]): string | null {
-    if (values.length < 12) return null;
-    
-    // Simple check for monthly patterns
-    const monthly: number[] = [];
-    for (let i = 0; i < 12; i++) {
-      monthly.push(values.slice(i * Math.floor(values.length / 12), (i + 1) * Math.floor(values.length / 12))
-        .reduce((a, b) => a + b, 0));
-    }
-    
-    const avg = monthly.reduce((a, b) => a + b, 0) / 12;
-    const peak = Math.max(...monthly);
-    const trough = Math.min(...monthly);
-    
-    if (peak / trough > 1.5) {
-      const peakMonth = new Date(2024, monthly.indexOf(peak), 1).toLocaleString('default', { month: 'long' });
-      return `Peak in ${peakMonth}`;
-    }
-    
-    return null;
   }
 
   async getTrends(currentUser: CurrentUserData, sku?: string): Promise<any[]> {
@@ -154,5 +102,13 @@ export class ForecastService {
       trend: this.calculateTrend(values),
       avgQuantity: values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0,
     }));
+  }
+
+  private calculateTrend(values: number[]): number {
+    if (!values || values.length < 2) return 0;
+    const first = values[0];
+    const last = values[values.length - 1];
+    if (first === 0) return last > 0 ? 100 : 0;
+    return Math.round(((last - first) / first) * 100);
   }
 }

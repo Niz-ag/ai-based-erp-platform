@@ -23,12 +23,19 @@ import { PayrollModule } from './payroll/payroll.module';
 import { AuditModule } from './audit/audit.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { ReportsModule } from './reports/reports.module';
+import { SalesOrdersModule } from './sales-orders/sales-orders.module';
 import { HealthModule } from './health/health.module';
+import { SearchModule } from './search/search.module';
+import { AttendanceModule } from './attendance/attendance.module';
+import { LeadsModule } from './leads/leads.module';
+import { SettingsModule } from './settings/settings.module';
 import { BullModule } from '@nestjs/bullmq';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { AuditInterceptor } from './common/interceptors/audit.interceptor';
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
+import { DecimalInterceptor } from './common/interceptors/decimal.interceptor';
+import { RolesGuard } from './common/guards/roles.guard';
 
 @Module({
   imports: [
@@ -64,7 +71,12 @@ import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
     AuditModule,
     WebhooksModule,
     ReportsModule,
+    SalesOrdersModule,
     HealthModule,
+    SearchModule,
+    AttendanceModule,
+    LeadsModule,
+    SettingsModule,
   ],
   providers: [
     {
@@ -74,6 +86,10 @@ import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
     {
       provide: APP_INTERCEPTOR,
       useClass: ResponseInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: DecimalInterceptor,
     },
     {
       provide: APP_INTERCEPTOR,

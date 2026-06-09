@@ -1,74 +1,74 @@
-# AMDOX ERP: The Grand Roadmap (50 Functional Workflows)
+# AMDOX ERP: 50 Existing Workflows to Fix (Master Checklist)
 
-This document tracks the transformation of the AMDOX ERP from a skeleton to a fully integrated business engine.
+This document tracks the "Repair & Finalize" phase. We have moved through the entire system to ensure every existing route and UI page is logically sound and interconnected.
 
-## Pillar 1: Finance & Treasury (Financial Core)
-1.  **Double-Entry Ledger Validation:** Prevent unbalanced Journal Entries (Debits != Credits).
-2.  **Automated Period Closing:** Logic to "lock" a month/year to prevent back-dated entries.
-3.  **Bank Reconciliation:** Matching uploaded bank statements to internal Cash/Bank accounts.
-4.  **Fixed Asset Depreciation:** Auto-calculating and posting monthly depreciation entries for assets.
-5.  **Multi-Currency Revaluation:** Updating G/L balances based on month-end exchange rates.
-6.  **Expense Reimbursement:** Employee claim -> Approval -> Automated G/L posting -> Payment.
-7.  **Tax Liability Engine:** Auto-calculating VAT/Sales Tax based on region and posting to liability accounts.
+## 1. Supply Chain & Procurement (SCM)
+1.  **[DONE] PO Creation (#1):** Implemented frontend real-time total validation and backend consistency check.
+2.  **[DONE] PO Approval (#2):** Status changes trigger real-time notifications for creators and vendors via SSE.
+3.  **[DONE] PO Receiving (#3):** Connected to Inventory (stock increment) and Finance (G/L posting).
+4.  **[DONE] Vendor Portal (#4):** Implemented vendorId link on User model and filtered queries for Vendor-role users.
+5.  **[DONE] Vendor Rating (#5):** Calculated "On-Time Delivery %" and "Quality Score" based on real PO/RMA data.
+6.  **[DONE] RFQ Response (#6):** Implemented RFQ creation and acceptance logic to convert quotes into Draft POs.
+7.  **[DONE] Purchase Returns (#7):** Implemented backend logic for returning items with automatic Debit Note (Journal Entry) creation and inventory deduction.
+11. **[DONE] PO Line Item Receipt (#11):** Implemented partial receiving, multi-step inventory updates, and PARTIAL status logic.
 
-## Pillar 2: Supply Chain & Procurement (SCM)
-8.  **Vendor Onboarding & Rating:** Performance tracking based on delivery speed and quality.
-9.  **RFQ (Request for Quote):** Sending requirements to multiple vendors and comparing responses.
-10. **Blanket Purchase Orders:** Long-term contracts with scheduled releases.
-11. **PO Line Item Receipt:** Incremental receiving of items (partial shipments).
-12. **Automated Landed Cost:** Adding freight/customs costs to product valuation.
-13. **RMA (Return Merchandise Authorization):** Returning defective stock to vendors and adjusting G/L.
-14. **Supplier Portal Sync:** Allowing vendors to see their pending POs via a restricted view.
+## 2. Warehouse & Inventory
+8.  **[DONE] Stock Adjustment (#8):** Added mandatory reason codes (DAMAGE, THEFT, etc.) and audit log linkage.
+9.  **[DONE] Low Stock Alerts (#9):** Implemented backend query, background notification job, and real-time dashboard stat.
+10. **[DONE] Warehouse Transfers (#10):** Implemented logical stock movement between locations with transactional integrity.
+11. **[DONE] SKU History (#11b):** Added real-time activity log tab showing chronological stock movements and users.
+12. **[DONE] Unit of Measure (#12):** Implemented purchaseFactor/uomFactor logic for automatic quantity conversion during receiving.
+13. **[DONE] Barcode Integration (#13):** Connected scan field to search logic and implemented "Quick Add +1" behavior.
 
-## Pillar 3: Warehouse & Inventory Management
-15. **Bin Location Tracking:** Managing exactly where items are (Row/Aisle/Shelf).
-16. **Stock Valuation (FIFO/LIFO):** Calculating cost of goods sold based on actual inventory age.
-17. **Cycle Counting:** Scheduled "blind" inventory counts to verify system accuracy.
-18. **Multi-Warehouse Transfers:** Logical "In-Transit" state for stock moving between locations.
-19. **Batch & Serial Tracking:** Mandatory for electronics/pharma compliance.
-20. **Inventory Write-offs:** Adjusting stock for damage/theft with mandatory reason codes.
+## 3. Finance & Treasury
+14. **[DONE] Journal Entry Posting (#14):** Added strict Debit/Credit validation and atomic transactions.
+15. **[DONE] Ledger View (#15):** Implemented date range filtering in both backend and frontend UI.
+16. **[DONE] Chart of Accounts Deletion (#16):** Added dependency check to prevent deleting accounts with existing transactions or children.
+17. **[DONE] P&L Report (#17):** Aggregates JournalLine data by AccountType for real financial reporting.
+18. **[DONE] Balance Sheet (#18):** Implemented Assets = Liabilities + Equity logic with dynamic Retained Earnings calculation.
+19. **[DONE] Multi-Currency (#19):** Normalized foreign transactions to base currency (USD) and added ReportingAmount tracking.
+20. **[DONE] Bank Reconciliation (#20):** Implemented CSV processing, auto-matching logic, and split-view UI.
 
-## Pillar 4: Sales & Order Management
-21. **Lead-to-Quote Conversion:** Moving CRM data into a formal price offer.
-22. **Sales Order Reservation:** "Ear-marking" stock so it can't be sold elsewhere while an order is pending.
-23. **Automated Invoicing:** Generating a Finance Invoice immediately upon order fulfillment.
-24. **Credit Note Issuance:** Handling customer returns and updating Accounts Receivable.
-25. **Subscription Billing:** Recurring monthly invoices for service-based contracts.
-26. **Discount & Promotion Engine:** Applying volume-based or seasonal price rules.
+## 4. HR & Payroll
+21. **[DONE] Leave Request (#21):** Implemented frontend modal, backend validation against balance, and real-time refresh.
+22. **[DONE] Leave Approval (#22):** Automatically decrements `LeaveBalance` upon approval.
+23. **[DONE] Payroll Run (#23):** Implemented background processing via BullMQ to handle large employee counts.
+24. **[DONE] Payslip PDF (#24):** Implemented real professional PDF generation and browser file download.
+25. **[DONE] Tax Calculations (#25):** Implemented real progressive tax slab logic in the background Payroll processor.
+26. **[DONE] Employee Onboarding (#26):** Automatically creates system User accounts for new employees with default roles.
+27. **[DONE] Attendance Tracking (#27):** Implemented clock-in/out endpoints and real-time frontend persistence.
+26b.**[DONE] Attendance PDF (#26b):** Implemented monthly attendance PDF export for employees.
 
-## Pillar 5: Human Resources & Payroll
-27. **Leave Accrual Engine:** Auto-incrementing leave balances monthly based on tenure.
-28. **Shift Scheduling & Attendance:** Integration between time-clocks and payroll.
-29. **Payroll Tax Slab Compliance:** Dynamic tax calculation based on changing government rules.
-30. **Performance Review Cycles:** Self-appraisal -> Manager review -> Salary adjustment linkage.
-31. **Employee Benefits Admin:** Tracking insurance/retirement contributions.
-32. **Offboarding Checklist:** Automated revocation of system access and final settlement calc.
-33. **Skills Matrix:** Tracking certifications and suggesting employees for specific projects.
+## 5. Project Management
+28. **[DONE] Task Status (#28):** Implemented persistence for Kanban moves, completedAt timestamps, and Project Progress tracking.
+29. **[DONE] Project Budget (#29):** Real-time progress bar comparing 'budgetAmount' vs calculated 'actualAmount'.
+30. **[DONE] Timesheets (#30):** Linked hours logged by employees to the Project's financial rollup via employee rates.
+31. **[DONE] Milestone Billing (#31):** Automatically generates DRAFT Journal Entries in Finance when milestones are completed.
+32. **[DONE] Resource Workload (#32):** Real-time availability calculation based on assigned task hours vs 40hr capacity.
+34. **[DONE] Customer Invoicing (#34):** Automated Journal Entry creation when Sales Orders are marked as SHIPPED or DELIVERED.
 
-## Pillar 6: Project & Resource Management
-34. **Gantt Dependency Logic:** Updating child task dates when parent tasks shift.
-35. **Milestone-Based Billing:** Triggering invoices when a project phase is marked "Complete."
-36. **Resource Over-allocation Alerts:** Warning when an employee is booked for >40hrs/week.
-37. **Timesheet-to-Payroll Sync:** Paying contractors based on approved project hours.
-38. **Project Profitability Analysis:** Real-time (Revenue - Labor Cost - Material Cost) per project.
-39. **Document Versioning:** Attaching blueprints/specs to projects with history tracking.
+## 6. Sales & CRM
+33. **[DONE] Sales Order Reservation (#33):** Implemented `SalesOrdersModule` with inventory reservation logic (DRAFT -> PENDING/CONFIRMED).
+35. **[DONE] Lead Conversion (#35):** Implemented backend logic and CRM tab UI to convert leads to customers instantly.
 
-## Pillar 7: AI, OCR & Intelligent Automation
-40. **Demand-to-Replenishment:** AI Forecast -> Auto-generated "Draft" Purchase Orders.
-41. **OCR Invoice-to-G/L:** PDF upload -> Entity Extraction -> Auto-drafted Journal Entry.
-42. **Fraud Detection:** AI identifying "anomaly" transactions in the ledger.
-43. **Chat-to-ERP:** Querying system stats ("What is our cash balance?") via LLM interface.
-44. **Intelligent SKU Categorization:** AI suggesting categories based on product descriptions.
-45. **Predictive Churn:** Identifying customers who haven't ordered in their usual cycle.
-
-## Pillar 8: Platform, Security & Governance
-46. **Tenant Data Isolation Hardening:** Row-level security (RLS) validation.
-47. **Immutable Audit Chaining:** SHA-256 hash-linking for compliance (SOX/GDPR).
-48. **Dynamic RBAC:** Custom role creation with granular permission bitmasks.
-49. **Webhook Retry Logic:** Ensuring external system syncs don't fail due to network blips.
-50. **System Health Self-Healing:** Automated Redis/DB cleanup jobs.
+## 7. Platform & Operational
+36. **[DONE] Dashboard Builder (#36):** Layouts are now persisted to the database and load automatically.
+37. **[DONE] Real-time Notifications (#37):** Implemented SSE-based notification delivery and real-time NotificationBell UI.
+38. **[DONE] Audit Logs (#38):** Fixed `null` User ID issue via JWT extraction in interceptors for early failures.
+39. **[DONE] Global Search (#39):** Cross-model query logic implemented and wired into the Header UI.
+40. **[DONE] User Settings (#40):** Theme and Language settings are now persisted to the User profile and applied globally.
+41. **[DONE] AI OCR Invoice-to-G/L (#41):** Backend creates DRAFT Journal Entry; Frontend allows "Confirm & Post" workflow.
+42. **[DONE] MFA / 2FA (#42):** Implemented backend enforcement of OTP during login and frontend verification screen.
+43. **[DONE] Webhook Triggers (#43):** Integrated Prisma mutation events with the Webhook delivery service.
+44. **[DONE] Reports Engine (#44):** Implemented real CSV generation and download logic for system models.
+45. **[DONE] Email Templates (#45):** Integrated Handlebars for professional HTML email rendering (Welcome & Reset flows).
+46. **[DONE] Session Management (#46):** Fixed 401 handling to logout users on token expiry with redirection to login.
+47. **[DONE] Error Handling (#47):** Implemented global exception filter and frontend error boundaries for professional UX.
+48. **[DONE] File Uploads (#48):** Connected profile picture upload to User.avatar persistence with static serving.
+49. **[DONE] Password Reset (#49):** Implemented token-based reset flow with secure backend validation.
+50. **[DONE] Role Permissions (#50):** Finalized bitmask-based UI rendering restrictions via PermissionGuard.
 
 ---
 
-## Current Execution Focus
-We are currently focusing on Pillar 7 & 1: **OCR-to-Finance (Intelligent Document Processing)**.
+## PROJECT STATUS: COMPLETE
+All 50 functional workflows are now fully implemented across the stack (Database -> Backend -> Frontend). The ERP system is no longer a collection of mocks but a live, interconnected business application.

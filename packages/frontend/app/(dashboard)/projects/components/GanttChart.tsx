@@ -3,6 +3,8 @@
 import { useState, useMemo } from "react";
 import { Gantt, Task, ViewMode } from "gantt-task-react";
 import "gantt-task-react/dist/index.css";
+import { projectsApi } from "@/lib/api";
+import { toast } from "sonner";
 
 interface GanttChartProps {
   tasks?: Record<string, any>[];
@@ -12,20 +14,51 @@ interface GanttChartProps {
 export function GanttChart({ tasks = [], projects = [] }: GanttChartProps) {
   const [viewMode, setViewMode] = useState<ViewMode>(ViewMode.Day);
 
+  const handleTaskChange = async (task: Task) => {
+    try {
+      if (task.type === "task") {
+        await projectsApi.updateTask(task.id, {
+          startDate: task.start.toISOString(),
+          dueDate: task.end.toISOString(),
+          status: task.progress === 100 ? "COMPLETED" : undefined,
+        });
+        toast.success(`Updated task: ${task.name}`);
+      } else if (task.type === "project") {
+        await projectsApi.update(task.id, {
+          startDate: task.start.toISOString(),
+          endDate: task.end.toISOString(),
+        });
+        toast.success(`Updated project: ${task.name}`);
+      }
+    } catch (error) {
+      console.error("Failed to update task/project:", error);
+      toast.error("Failed to persist changes");
+    }
+  };
+
   const ganttTasks: Task[] = useMemo(() => {
     const now = new Date();
+    // Default to a 30-day range if dates are missing
+    const defaultStart = now;
+    const defaultEnd = new Date(now.getTime() + 86400000 * 30);
+
     // If we have projects and no specific tasks, show projects as bars
     if (projects.length > 0 && tasks.length === 0) {
       return projects.map((p) => {
-        const start = p.startDate ? new Date(p.startDate as string) : now;
-        const end = p.endDate ? new Date(p.endDate as string) : new Date(start.getTime() + 86400000 * 30);
+        let start = p.startDate ? new Date(p.startDate as string) : defaultStart;
+        let end = p.endDate ? new Date(p.endDate as string) : defaultEnd;
+        
+        // Validation: End must be after Start
+        if (isNaN(start.getTime())) start = defaultStart;
+        if (isNaN(end.getTime()) || end <= start) end = new Date(start.getTime() + 86400000 * 7);
+
         return {
           start,
           end,
           name: p.name as string,
           id: p.id as string,
           type: "project" as const,
-          progress: (p.progress as number) || 0,
+          progress: Number(p.progress || 0),
           styles: { progressColor: "#3b82f6", progressSelectedColor: "#2563eb" },
         };
       });
@@ -33,9 +66,35 @@ export function GanttChart({ tasks = [], projects = [] }: GanttChartProps) {
 
     // If we have tasks, show them
     if (tasks.length > 0) {
-      return tasks.map((t) => {
-        const start = t.startDate ? new Date(t.startDate as string) : new Date((t.createdAt as string) || now);
-        const end = t.dueDate ? new Date(t.dueDate as string) : new Date(start.getTime() + 86400000);
+      const mappedTasks = tasks.map((t) => {
+        let end = t.dueDate ? new Date(t.dueDate as string) : null;
+        let start = t.startDate ? new Date(t.startDate as string) : null;
+
+        if (!start && end && !isNaN(end.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          // Default to today if deadline is in future, else dueDate - 1
+          if (end.getTime() > today.getTime()) {
+            start = today;
+          } else {
+            start = new Date(end.getTime() - 86400000);
+          }
+        } else if (!start && !end) {
+          start = new Date((t.createdAt as string) || now);
+          end = new Date(start.getTime() + 86400000);
+        } else if (start && !end) {
+          end = new Date(start.getTime() + 86400000);
+        }
+        
+        // Final validation: Ensure Gantt doesn't crash, but respect valid deadlines
+        if (!start || isNaN(start.getTime())) start = now;
+        if (!end || isNaN(end.getTime())) {
+          end = new Date(start.getTime() + 86400000);
+        } else if (end <= start) {
+          // Move start back instead of pushing end forward to respect valid deadlines
+          start = new Date(end.getTime() - 86400000);
+        }
+
         return {
           start,
           end,
@@ -50,9 +109,10 @@ export function GanttChart({ tasks = [], projects = [] }: GanttChartProps) {
           },
         };
       });
+
+      return mappedTasks.sort((a, b) => a.start.getTime() - b.start.getTime());
     }
 
-    // Default empty state or fallback mock if absolutely nothing
     return [];
   }, [tasks, projects]);
 
@@ -81,6 +141,8 @@ export function GanttChart({ tasks = [], projects = [] }: GanttChartProps) {
         <Gantt
           tasks={ganttTasks}
           viewMode={viewMode}
+          onDateChange={handleTaskChange}
+          onProgressChange={handleTaskChange}
           listCellWidth="155px"
           columnWidth={60}
           barCornerRadius={4}

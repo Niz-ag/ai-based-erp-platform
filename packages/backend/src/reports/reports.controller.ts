@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Param, Body, UseGuards, Query, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, UseGuards, Query, ParseUUIDPipe, Res } from '@nestjs/common';
 import { ReportsService } from './reports.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
-import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.decorator';
+import { Response } from 'express';
 
 @Controller('reports')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -24,6 +24,14 @@ export class ReportsController {
     return this.reportsService.generate(body.type);
   }
 
+  @Post('schedule')
+  @Roles('superadmin', 'admin', 'manager')
+  schedule(
+    @Body() body: { type: string, schedule: string }
+  ) {
+    return this.reportsService.schedule(body.type, body.schedule);
+  }
+
   @Get(':id')
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   findOne(
@@ -34,10 +42,14 @@ export class ReportsController {
 
   @Get(':id/download')
   @Roles('superadmin', 'admin', 'manager')
-  download(
+  async download(
     @Param('id', ParseUUIDPipe) id: string,
-    @Query('format') format: 'pdf' | 'excel'
+    @Res() res: Response
   ) {
-    return this.reportsService.generateDownload(id, format);
+    const { content, filename } = await this.reportsService.getReportFile(id);
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(content);
   }
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,17 +27,31 @@ function LoginForm() {
   const tokenFromUrl = searchParams.get("token");
   const { login, isAuthenticated } = useAuthStore();
   const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState("");
 
   const {
     register,
     handleSubmit,
     setError,
-    getValues,
     formState: { errors, isSubmitting },
   } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
+
+  useEffect(() => {
+    if (searchParams.get("expired")) {
+      toast.error("Session Expired", { 
+        description: "Your session has timed out. Please login again.",
+        duration: 5000 
+      });
+      // AI MANDATE: URL Sanitization
+      // Remove the expired flag from the URL without triggering a reload
+      const url = new URL(window.location.href);
+      url.searchParams.delete("expired");
+      window.history.replaceState({}, "", url.pathname + url.search);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (isAuthenticated && !tokenFromUrl) {
@@ -59,34 +74,51 @@ function LoginForm() {
 
   const onSubmit = async (data: LoginFormData) => {
     try {
-      const response = await authApi.login({ ...data, mfaCode: mfaRequired ? mfaCode : undefined });
+      const response = await authApi.login(data);
 
       if (response.mfaRequired) {
         setMfaRequired(true);
+        setMfaToken(response.mfaToken || null);
         toast.info("MFA Required", { description: "Please enter your verification code" });
         return;
       }
 
-      localStorage.setItem("token", response.access_token || response.token);
-      
-      // Set cookie for middleware
-      document.cookie = `token=${response.access_token || response.token}; path=/; max-age=86400; SameSite=Lax`;
-
-      login({
-        ...response.user,
-        name: `${response.user?.firstName || ""} ${response.user?.lastName || ""}`.trim() || response.user?.email,
-      });
-
-      toast.success("Welcome back!", { description: "Login successful" });
-      
-      // AI MANDATE: Hard Redirection
-      // Using window.location.href instead of router.push to ensure 
-      // the Service Worker and hydration state are completely reset.
-      window.location.href = redirect;
+      handleLoginSuccess(response);
     } catch (err: any) {
       toast.error("Login failed", { description: err.message || "Invalid credentials" });
       setError("root", { message: err.message || "Login failed" });
     }
+  };
+
+  const onVerifyMfa = async () => {
+    if (!mfaToken) return;
+    try {
+      const response = await authApi.verifyMfa(mfaToken, mfaCode);
+      handleLoginSuccess(response);
+    } catch (err: any) {
+      toast.error("MFA Verification failed", { description: err.message || "Invalid code" });
+    }
+  };
+
+  const handleLoginSuccess = (response: any) => {
+    localStorage.setItem("token", response.access_token || response.token);
+    
+    // Set cookie for middleware
+    // eslint-disable-next-line react-hooks/immutability
+    document.cookie = `token=${response.access_token || response.token}; path=/; max-age=86400; SameSite=Lax`;
+
+    login({
+      ...response.user,
+      name: `${response.user?.firstName || ""} ${response.user?.lastName || ""}`.trim() || response.user?.email,
+    });
+
+    toast.success("Welcome back!", { description: "Login successful" });
+    
+    // AI MANDATE: Hard Redirection
+    // Using window.location.href instead of router.push to ensure 
+    // the Service Worker and hydration state are completely reset.
+    // eslint-disable-next-line react-hooks/immutability
+    window.location.href = redirect;
   };
 
   return (
@@ -143,6 +175,15 @@ function LoginForm() {
                 </div>
               </div>
 
+              <div className="flex items-center justify-end">
+                <Link 
+                  href="/forgot-password" 
+                  className="text-sm font-medium text-blue-600 hover:text-blue-500"
+                >
+                  Forgot your password?
+                </Link>
+              </div>
+
               <Button
                 type="submit"
                 className="w-full"
@@ -154,7 +195,7 @@ function LoginForm() {
           ) : (
             <div className="space-y-6">
               <div className="space-y-2 text-center">
-                <p className="text-sm text-muted-foreground">Enter the 6-digit code (Demo: 123456)</p>
+                <p className="text-sm text-muted-foreground">Enter the 6-digit code</p>
               </div>
               <div className="space-y-4">
                 <input
@@ -168,7 +209,7 @@ function LoginForm() {
                 <Button 
                   className="w-full" 
                   disabled={mfaCode.length < 6 || isSubmitting}
-                  onClick={() => onSubmit(getValues())}
+                  onClick={onVerifyMfa}
                 >
                   {isSubmitting ? "Verifying..." : "Verify Code"}
                 </Button>

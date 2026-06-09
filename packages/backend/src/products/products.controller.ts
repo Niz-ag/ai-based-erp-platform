@@ -8,6 +8,7 @@ import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.
 interface CreateProductDto {
   name: string;
   sku: string;
+  barcode?: string;
   description?: string;
   unitPrice: number;
   unit?: string;

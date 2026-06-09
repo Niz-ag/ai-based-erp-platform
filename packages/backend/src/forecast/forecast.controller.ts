@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ForecastService } from './forecast.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.decorator';
 
 export class ForecastDemandDto {
@@ -15,7 +17,8 @@ class HistoricalDataDto {
 }
 
 @Controller('forecast')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('viewer')
 export class ForecastController {
   constructor(private readonly forecastService: ForecastService) {}
 
@@ -25,8 +28,15 @@ export class ForecastController {
   }
 
   @Post('historical')
+  @Roles('superadmin', 'admin', 'manager')
   addHistoricalData(@Body() dto: HistoricalDataDto, @CurrentUser() user: CurrentUserData) {
     return this.forecastService.addHistoricalData(dto.sku, dto.quantity, dto.date, user);
+  }
+
+  @Post('historical/bulk')
+  @Roles('superadmin', 'admin', 'manager')
+  bulkHistoricalData(@Body() body: { data: HistoricalDataDto[] }, @CurrentUser() user: CurrentUserData) {
+    return this.forecastService.bulkHistoricalData(body.data, user);
   }
 
   @Get('demand/:sku')

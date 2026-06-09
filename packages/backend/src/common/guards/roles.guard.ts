@@ -8,9 +8,10 @@ export class RolesGuard implements CanActivate {
 
   // Role hierarchy: higher roles include lower role permissions
   private roleHierarchy: Record<string, number> = {
-    'superadmin': 4,
-    'admin': 3,
-    'manager': 2,
+    'superadmin': 5,
+    'admin': 4,
+    'manager': 3,
+    'viewer': 2,
     'user': 1,
   };
 

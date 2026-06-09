@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { WebhooksController } from './webhooks.controller';
 import { WebhooksService } from './webhooks.service';
-import { PrismaService } from '../common/prisma.service';
 
 @Module({
   controllers: [WebhooksController],
-  providers: [WebhooksService, PrismaService],
+  providers: [WebhooksService],
   exports: [WebhooksService],
 })
 export class WebhooksModule {}

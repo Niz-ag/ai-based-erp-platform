@@ -1,62 +1,52 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Plus, Building2, MoreVertical, Loader2 } from "lucide-react";
+import { Plus, Building2, MoreVertical } from "lucide-react";
 import { tenantsApi } from "@/lib/api";
 import { Modal } from "@/components/ui/modal";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuthStore } from "@/lib/store/useAuthStore";
 import { toast } from "sonner";
 
 export default function TenantsPage() {
   const { user } = useAuthStore();
-  const [tenants, setTenants] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({ name: "", domain: "" });
 
-  const handleCreateTenant = async (e: React.FormEvent) => {
+  // Queries
+  const { data: tenants = [], isLoading, error } = useQuery({
+    queryKey: ["tenants"],
+    queryFn: () => tenantsApi.getAll(),
+  });
+
+  // Mutations
+  const createMutation = useMutation({
+    mutationFn: (data: typeof formData) => tenantsApi.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tenants"] });
+      toast.success("Tenant created successfully");
+      setIsModalOpen(false);
+      setFormData({ name: "", domain: "" });
+    },
+    onError: (err: any) => {
+      toast.error(err.message || "Failed to create tenant");
+    },
+  });
+
+  const handleCreateTenant = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name.trim()) {
       toast.error("Tenant name is required");
       return;
     }
-    try {
-      setIsSubmitting(true);
-      await tenantsApi.create({ name: formData.name, domain: formData.domain });
-      toast.success("Tenant created successfully");
-      setIsModalOpen(false);
-      setFormData({ name: "", domain: "" });
-      // Refresh list
-      const data = await tenantsApi.getAll();
-      setTenants(data);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create tenant");
-    } finally {
-      setIsSubmitting(false);
-    }
+    createMutation.mutate(formData);
   };
 
   // Only superadmin can add tenants
   const canAddTenant = user?.role?.name?.toLowerCase() === 'superadmin';
-
-  useEffect(() => {
-    const fetchTenants = async () => {
-      try {
-        setIsLoading(true);
-        const data = await tenantsApi.getAll();
-        setTenants(data);
-      } catch (err: any) {
-        setError(err.message || "Failed to fetch tenants");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchTenants();
-  }, []);
 
   return (
     <div className="space-y-6">
@@ -103,8 +93,8 @@ export default function TenantsPage() {
             <Button variant="ghost" type="button" onClick={() => setIsModalOpen(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? "Creating..." : "Create Tenant"}
+            <Button type="submit" disabled={createMutation.isPending}>
+              {createMutation.isPending ? "Creating..." : "Create Tenant"}
             </Button>
           </div>
         </form>
@@ -112,16 +102,23 @@ export default function TenantsPage() {
 
       {error && (
         <div className="rounded-md bg-red-50 p-4 text-sm text-red-700">
-          {error}
+          {(error as any).message || "Failed to fetch tenants"}
         </div>
       )}
 
       <div className="rounded-lg border bg-white shadow-sm">
         <div className="overflow-x-auto">
           {isLoading ? (
-            <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mb-2" />
-              <p>Loading tenants...</p>
+            <div className="p-4 space-y-4">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="flex items-center space-x-4">
+                  <Skeleton className="h-10 w-10 rounded" />
+                  <div className="space-y-2 flex-1">
+                    <Skeleton className="h-4 w-[40%]" />
+                    <Skeleton className="h-3 w-[20%]" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : tenants.length === 0 ? (
             <div className="p-12 text-center text-muted-foreground">

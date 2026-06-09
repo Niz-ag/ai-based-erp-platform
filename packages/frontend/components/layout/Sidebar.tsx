@@ -55,11 +55,11 @@ export const navigation = [
 
 // Role hierarchy for comparison
 export const roleHierarchy: Record<string, number> = {
-  user: 0,      // lowest - can only see basics
-  viewer: 1,
-  manager: 2,
-  admin: 3,
-  superadmin: 4,
+  user: 1,      
+  viewer: 2,
+  manager: 3,
+  admin: 4,
+  superadmin: 5,
 };
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {

@@ -4,3 +4,6 @@ export { QueryProvider } from "./providers/QueryProvider";
 export { AuthProvider } from "./providers/AuthProvider";
 export { ProtectedRoute } from "./providers/ProtectedRoute";
 export { Button } from "./ui/button";
+export { Skeleton } from "./ui/skeleton";
+export { WidgetErrorBoundary } from "./ui/WidgetErrorBoundary";
+export { PermissionGuard } from "./auth/PermissionGuard";

@@ -28,4 +28,4 @@ COPY --from=builder /app/prisma ./prisma
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma db push && npx prisma db seed && npm run start:prod"]
+CMD ["npm", "run", "start:prod"]

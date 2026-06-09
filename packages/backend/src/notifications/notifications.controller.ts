@@ -6,23 +6,29 @@ import {
   Param,
   Body,
   UseGuards,
-  Res,
   Query,
   ParseUUIDPipe,
   HttpStatus,
   HttpCode,
+  Sse,
+  MessageEvent,
 } from '@nestjs/common';
-import { Response } from 'express';
-import { NotificationsService, addSseClient, removeSseClient } from './notifications.service';
+import { Observable } from 'rxjs';
+import { filter, map } from 'rxjs/operators';
+import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CurrentUser, CurrentUserData } from '../common/decorators/current-user.decorator';
+import { EventBusService } from '../common/event-bus.service';
 
 @Controller('notifications')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class NotificationsController {
-  constructor(private notificationsService: NotificationsService) {}
+  constructor(
+    private notificationsService: NotificationsService,
+    private eventBusService: EventBusService,
+  ) {}
 
   @Get()
   @Roles('superadmin', 'admin', 'manager', 'viewer')
@@ -33,7 +39,7 @@ export class NotificationsController {
     return this.notificationsService.findAll(currentUser, true);
   }
 
-  @Get('count')
+  @Get('unread-count')
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   getUnreadCount(@CurrentUser() currentUser: CurrentUserData) {
     return this.notificationsService.getUnreadCount(currentUser);
@@ -57,25 +63,15 @@ export class NotificationsController {
   }
 
   // SSE endpoint for real-time notifications
-  @Get('stream')
+  @Sse('stream')
   @Roles('superadmin', 'admin', 'manager', 'viewer')
-  stream(@CurrentUser() currentUser: CurrentUserData, @Res() res: Response) {
-    // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-
-    // Add this client to the registry
-    addSseClient(currentUser.id, res);
-
-    // Send initial connection message
-    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'Notification stream connected' })}\n\n`);
-
-    // Handle client disconnect
-    res.on('close', () => {
-      removeSseClient(currentUser.id, res);
-    });
+  stream(@CurrentUser() currentUser: CurrentUserData): Observable<MessageEvent> {
+    return this.eventBusService.onModelEvent().pipe(
+      filter(event => event.tenantId === currentUser.tenantId),
+      map(event => ({
+        data: event,
+      } as MessageEvent)),
+    );
   }
 
   // Preferences endpoints

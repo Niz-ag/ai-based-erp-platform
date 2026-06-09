@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -20,5 +20,17 @@ export class DashboardController {
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   getRecentActivity(@CurrentUser() currentUser: CurrentUserData) {
     return this.dashboardService.getRecentActivity(currentUser);
+  }
+
+  @Get('layout')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  getLayout(@CurrentUser() currentUser: CurrentUserData) {
+    return this.dashboardService.getLayout(currentUser);
+  }
+
+  @Post('layout')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  saveLayout(@CurrentUser() currentUser: CurrentUserData, @Body() body: { layout: any }) {
+    return this.dashboardService.saveLayout(currentUser, body.layout);
   }
 }

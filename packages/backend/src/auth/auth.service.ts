@@ -1,8 +1,12 @@
-import { Injectable, UnauthorizedException, ConflictException, Inject } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Inject, Logger } from '@nestjs/common';
+// @ts-ignore
+import { authenticator } from 'otplib';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../common/prisma.service';
 import { RedisService } from '../common/redis.service';
+import { EmailService } from '../common/email.service';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 export interface LoginDto {
   email: string;
@@ -22,10 +26,12 @@ export interface RegisterDto {
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
     private redis: RedisService,
+    private emailService: EmailService,
   ) {}
 
   /**
@@ -40,6 +46,7 @@ export class AuthService {
       email: user.email,
       tenantId: user.tenantId,
       roleId: user.roleId,
+      vendorId: user.vendorId,
       role: user.role,
     };
     try {
@@ -77,19 +84,16 @@ export class AuthService {
       }
 
       // MFA Enforcement (Requirement F-01)
-      const roleName = user.role.name.toLowerCase();
-      const isMfaRequired = roleName === 'admin' || roleName === 'superadmin';
-      
-      if (isMfaRequired && !loginDto.mfaCode) {
+      if (user.mfaEnabled) {
+        const mfaToken = this.jwtService.sign(
+          { sub: user.id, type: 'mfa_pending', tenantId: user.tenantId },
+          { expiresIn: '5m' },
+        );
         return {
           mfaRequired: true,
-          userId: user.id,
-          message: 'MFA verification required (Enter 123456 for demo)',
+          mfaToken,
+          message: 'MFA verification required',
         };
-      }
-
-      if (isMfaRequired && loginDto.mfaCode !== '123456') {
-        throw new UnauthorizedException('Invalid MFA code');
       }
 
       // Prime the cache BEFORE returning the token
@@ -99,6 +103,51 @@ export class AuthService {
     } catch (error) {
       console.error('Login error:', error);
       throw error;
+    }
+  }
+
+  async verifyMfa(mfaToken: string, otpCode: string) {
+    try {
+      const payload = this.jwtService.verify(mfaToken);
+      if (payload.type !== 'mfa_pending') {
+        throw new UnauthorizedException('Invalid MFA token');
+      }
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: payload.sub },
+        include: { role: true, tenant: true },
+      });
+
+      if (!user || !user.isActive) {
+        throw new UnauthorizedException('User not found or inactive');
+      }
+
+      // Real TOTP validation
+      if (!user.mfaSecret) {
+        throw new UnauthorizedException('MFA not properly configured for this user');
+      }
+
+      const isValid = await this.verifyTOTP(otpCode, user.mfaSecret);
+      if (!isValid) {
+        throw new UnauthorizedException('Invalid OTP code');
+      }
+
+      await this.primeUserCache(user);
+      return this.generateToken(user);
+    } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        throw new UnauthorizedException('MFA token expired');
+      }
+      if (error instanceof UnauthorizedException) throw error;
+      throw new UnauthorizedException('MFA verification failed');
+    }
+  }
+
+  private verifyTOTP(token: string, secret: string): boolean {
+    try {
+      return authenticator.verify({ token, secret });
+    } catch (error) {
+      return false;
     }
   }
 
@@ -130,10 +179,94 @@ export class AuthService {
 
       await this.primeUserCache(user);
 
+      // Send Welcome Email (Workflow #45)
+      try {
+        await this.emailService.sendWelcomeEmail(user.email, user.firstName || user.email);
+      } catch (emailError) {
+        console.error('Failed to send welcome email:', emailError);
+        // Don't fail registration if email fails
+      }
+
       return this.generateToken(user);
     } catch (error) {
       console.error('Registration error:', error);
       throw error;
+    }
+  }
+
+  async forgotPassword(email: string, tenantId?: string) {
+    try {
+      const whereClause: any = { email };
+      if (tenantId) {
+        whereClause.tenantId = tenantId;
+      }
+
+      const user = await this.prisma.user.findFirst({
+        where: whereClause,
+      });
+
+      if (!user) {
+        // Security: Don't reveal if user exists
+        return { message: 'If an account exists for this email, you will receive a reset link.' };
+      }
+
+      const token = crypto.randomBytes(32).toString('hex');
+      const cacheKey = `reset_token:${token}`;
+      
+      // Store in Redis for 15 minutes (900 seconds)
+      await this.redis.set(cacheKey, user.id, 900);
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+      const resetLink = `${frontendUrl}/reset-password?token=${token}`;
+      
+      // Send Password Reset Email (Workflow #45)
+      try {
+        await this.emailService.sendNotificationEmail(
+          user.email,
+          'Password Reset Request',
+          `You requested a password reset. Please click the button below to reset your password. This link will expire in 15 minutes.`,
+          resetLink,
+          'Reset Password'
+        );
+      } catch (emailError) {
+        console.error('Failed to send reset email:', emailError);
+      }
+
+      this.logger.log('--- PASSWORD RESET LINK (MANDATE #49) ---');
+      this.logger.log(`User: ${user.email}`);
+      this.logger.log(`Link: ${resetLink}`);
+      this.logger.log('-------------------------------------------');
+
+      return { message: 'If an account exists for this email, you will receive a reset link.' };
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      throw error;
+    }
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    try {
+      const cacheKey = `reset_token:${token}`;
+      const userId = await this.redis.get(cacheKey);
+
+      if (!userId) {
+        throw new UnauthorizedException('Invalid or expired reset token');
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 10);
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { passwordHash },
+      });
+
+      // Delete token after use
+      await this.redis.del(cacheKey);
+
+      return { message: 'Password has been reset successfully' };
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      console.error('Reset password error:', error);
+      throw new Error('Failed to reset password');
     }
   }
 
@@ -185,6 +318,7 @@ export class AuthService {
       email: user.email,
       tenantId: user.tenantId,
       roleId: user.roleId,
+      vendorId: user.vendorId,
     };
 
     const token = this.jwtService.sign(payload);
@@ -196,6 +330,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
+        vendorId: user.vendorId,
         role: {
           id: user.role.id,
           name: user.role.name,

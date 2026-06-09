@@ -59,14 +59,14 @@ export class LeaveRequestsController {
   ) {
     return this.leaveRequestsService.reject(id, currentUser);
   }
-}
 
-@Controller('leave-balances')
-@UseGuards(JwtAuthGuard, RolesGuard)
-export class LeaveBalancesController {
-  constructor(private leaveRequestsService: LeaveRequestsService) {}
+  @Get('balances')
+  @Roles('superadmin', 'admin', 'manager', 'viewer')
+  getMyBalances(@CurrentUser() currentUser: CurrentUserData) {
+    return this.leaveRequestsService.getMyLeaveBalances(currentUser);
+  }
 
-  @Get(':employeeId')
+  @Get('balances/:employeeId')
   @Roles('superadmin', 'admin', 'manager', 'viewer')
   getBalances(
     @Param('employeeId', ParseUUIDPipe) employeeId: string,

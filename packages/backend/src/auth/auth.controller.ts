@@ -69,4 +69,28 @@ export class AuthController {
     };
     return this.authService.register(registerDto);
   }
+
+  @Post('verify-mfa')
+  async verifyMfa(@Body() body: { mfaToken: string; otpCode: string }) {
+    if (!body.mfaToken || !body.otpCode) {
+      throw new UnauthorizedException('MFA token and OTP code are required');
+    }
+    return this.authService.verifyMfa(body.mfaToken, body.otpCode);
+  }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string; tenantId?: string }) {
+    if (!body.email) {
+      throw new UnauthorizedException('Email is required');
+    }
+    return this.authService.forgotPassword(body.email, body.tenantId);
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() body: { token: string; password: string }) {
+    if (!body.token || !body.password) {
+      throw new UnauthorizedException('Token and new password are required');
+    }
+    return this.authService.resetPassword(body.token, body.password);
+  }
 }

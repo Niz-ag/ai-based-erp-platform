@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma.service';
 
 export interface KeycloakConfig {
   realm: string;
@@ -10,48 +11,64 @@ export interface KeycloakConfig {
 
 @Injectable()
 export class KeycloakService {
-  private config: KeycloakConfig;
-  private accessTokens: Map<string, { token: string; expiresAt: number }> = new Map();
+  constructor(private prisma: PrismaService) {}
 
-  constructor() {
-    this.config = {
-      realm: process.env.KEYCLOAK_REALM || 'amdox',
-      clientId: process.env.KEYCLOAK_CLIENT_ID || 'amdox-app',
-      clientSecret: process.env.KEYCLOAK_CLIENT_SECRET || '',
-      authServerUrl: process.env.KEYCLOAK_URL || 'http://localhost:8080',
-      callbackUrl: process.env.KEYCLOAK_CALLBACK_URL || 'http://localhost:3000/api/auth/callback',
+  private async getConfig(tenantId: string): Promise<KeycloakConfig | null> {
+    const tenantSetting = await this.prisma.tenantSetting.findUnique({
+      where: { tenantId },
+    });
+
+    if (!tenantSetting || !tenantSetting.settings) {
+      return null;
+    }
+
+    const settings = tenantSetting.settings as any;
+    
+    // Fallback to process.env if settings are not in DB for this tenant
+    return {
+      realm: settings.keycloak_realm || process.env.KEYCLOAK_REALM || 'amdox',
+      clientId: settings.keycloak_client_id || process.env.KEYCLOAK_CLIENT_ID || 'amdox-app',
+      clientSecret: settings.keycloak_client_secret || process.env.KEYCLOAK_CLIENT_SECRET || '',
+      authServerUrl: settings.keycloak_url || process.env.KEYCLOAK_URL || 'http://localhost:8080',
+      callbackUrl: settings.keycloak_callback_url || process.env.KEYCLOAK_CALLBACK_URL || 'http://localhost:3000/api/auth/callback',
     };
   }
 
-  getLoginUrl(state: string): string {
+  async getLoginUrl(tenantId: string, state: string): Promise<string> {
+    const config = await this.getConfig(tenantId);
+    if (!config) throw new Error('SSO not configured for this tenant');
+
     const params = new URLSearchParams({
       response_type: 'code',
-      client_id: this.config.clientId,
-      client_secret: this.config.clientSecret,
-      redirect_uri: this.config.callbackUrl,
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      redirect_uri: config.callbackUrl,
       scope: 'openid profile email',
       state,
     });
-    return `${this.config.authServerUrl}/realms/${this.config.realm}/protocol/openid-connect/auth?${params}`;
+    return `${config.authServerUrl}/realms/${config.realm}/protocol/openid-connect/auth?${params}`;
   }
 
-  async getToken(code: string): Promise<{
+  async getToken(tenantId: string, code: string): Promise<{
     access_token: string;
     refresh_token: string;
     id_token: string;
     expires_in: number;
   }> {
+    const config = await this.getConfig(tenantId);
+    if (!config) throw new Error('SSO not configured for this tenant');
+
     const response = await fetch(
-      `${this.config.authServerUrl}/realms/${this.config.realm}/protocol/openid-connect/token`,
+      `${config.authServerUrl}/realms/${config.realm}/protocol/openid-connect/token`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'authorization_code',
-          client_id: this.config.clientId,
-          client_secret: this.config.clientSecret,
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
           code,
-          redirect_uri: this.config.callbackUrl,
+          redirect_uri: config.callbackUrl,
         }),
       }
     );
@@ -68,20 +85,23 @@ export class KeycloakService {
     }>;
   }
 
-  async refreshToken(refreshToken: string): Promise<{
+  async refreshToken(tenantId: string, refreshToken: string): Promise<{
     access_token: string;
     refresh_token: string;
     expires_in: number;
   }> {
+    const config = await this.getConfig(tenantId);
+    if (!config) throw new Error('SSO not configured for this tenant');
+
     const response = await fetch(
-      `${this.config.authServerUrl}/realms/${this.config.realm}/protocol/openid-connect/token`,
+      `${config.authServerUrl}/realms/${config.realm}/protocol/openid-connect/token`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
           grant_type: 'refresh_token',
-          client_id: this.config.clientId,
-          client_secret: this.config.clientSecret,
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
           refresh_token: refreshToken,
         }),
       }
@@ -98,15 +118,18 @@ export class KeycloakService {
     }>;
   }
 
-  async getUserInfo(accessToken: string): Promise<{
+  async getUserInfo(tenantId: string, accessToken: string): Promise<{
     sub: string;
     email: string;
     name: string;
     given_name?: string;
     family_name?: string;
   }> {
+    const config = await this.getConfig(tenantId);
+    if (!config) throw new Error('SSO not configured for this tenant');
+
     const response = await fetch(
-      `${this.config.authServerUrl}/realms/${this.config.realm}/protocol/openid-connect/userinfo`,
+      `${config.authServerUrl}/realms/${config.realm}/protocol/openid-connect/userinfo`,
       {
         headers: { Authorization: `Bearer ${accessToken}` },
       }
@@ -125,15 +148,18 @@ export class KeycloakService {
     }>;
   }
 
-  async logout(refreshToken: string): Promise<void> {
+  async logout(tenantId: string, refreshToken: string): Promise<void> {
+    const config = await this.getConfig(tenantId);
+    if (!config) return;
+
     await fetch(
-      `${this.config.authServerUrl}/realms/${this.config.realm}/protocol/openid-connect/logout`,
+      `${config.authServerUrl}/realms/${config.realm}/protocol/openid-connect/logout`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          client_id: this.config.clientId,
-          client_secret: this.config.clientSecret,
+          client_id: config.clientId,
+          client_secret: config.clientSecret,
           refresh_token: refreshToken,
         }),
       }
@@ -141,23 +167,26 @@ export class KeycloakService {
   }
 
   // SAML support
-  getSamlLoginUrl(): string {
-    return `${this.config.authServerUrl}/realms/${this.config.realm}/protocol/saml`;
+  async getSamlLoginUrl(tenantId: string): Promise<string> {
+    const config = await this.getConfig(tenantId);
+    if (!config) throw new Error('SSO not configured for this tenant');
+
+    return `${config.authServerUrl}/realms/${config.realm}/protocol/saml`;
   }
 
-  validateSamlAssertion(assertion: string): Promise<{
+  async validateSamlAssertion(tenantId: string, assertion: string): Promise<{
     nameId: string;
     attributes: Record<string, string[]>;
   }> {
     // SAML validation would go here
-    // For now, return mock
     return Promise.resolve({
       nameId: 'user@example.com',
       attributes: { email: ['user@example.com'], name: ['Test User'] },
     });
   }
 
-  isEnabled(): boolean {
-    return !!this.config.clientSecret;
+  async isEnabled(tenantId: string): Promise<boolean> {
+    const config = await this.getConfig(tenantId);
+    return !!(config && config.clientSecret);
   }
 }

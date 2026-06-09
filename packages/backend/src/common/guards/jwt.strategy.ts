@@ -9,6 +9,7 @@ export interface JwtPayload {
   email: string;
   tenantId: string;
   roleId: string;
+  vendorId?: string;
 }
 
 @Injectable()
@@ -18,7 +19,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private redis: RedisService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (req) => {
+          if (req && req.query && req.query.token) {
+            return req.query.token as string;
+          }
+          return null;
+        },
+      ]),
       ignoreExpiration: false,
       secretOrKey: process.env.JWT_SECRET || 'amdox-secret-key-change-in-production',
     });
@@ -56,6 +65,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: user.email,
       tenantId: user.tenantId,
       roleId: user.roleId,
+      vendorId: user.vendorId,
       role: user.role,
     };
 

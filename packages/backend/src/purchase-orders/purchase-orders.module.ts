@@ -1,14 +1,16 @@
 import { Module } from '@nestjs/common';
 import { PurchaseOrdersController } from './purchase-orders.controller';
 import { PurchaseOrdersService } from './purchase-orders.service';
-import { PrismaService } from '../common/prisma.service';
+import { RFQController } from './rfq.controller';
+import { RFQService } from './rfq.service';
+import { PrismaModule } from '../common/prisma.module';
 import { WebhooksModule } from '../webhooks/webhooks.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [WebhooksModule, NotificationsModule],
-  controllers: [PurchaseOrdersController],
-  providers: [PurchaseOrdersService, PrismaService],
-  exports: [PurchaseOrdersService],
+  imports: [PrismaModule, WebhooksModule, NotificationsModule],
+  controllers: [PurchaseOrdersController, RFQController],
+  providers: [PurchaseOrdersService, RFQService],
+  exports: [PurchaseOrdersService, RFQService],
 })
 export class PurchaseOrdersModule {}

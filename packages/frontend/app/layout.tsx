@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { AuthProvider } from "@/components/providers/AuthProvider";
+import { GlobalErrorBoundary } from "@/components/providers/GlobalErrorBoundary";
 import { Toaster } from "sonner";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -28,29 +29,31 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
       </head>
       <body className={`${inter.className} min-h-full`}>
-        <QueryProvider>
-          <AuthProvider>
-            {children}
-            <Toaster position="top-right" richColors />
-            <script
-              dangerouslySetInnerHTML={{
-                __html: `
-                  if ('serviceWorker' in navigator) {
-                    window.addEventListener('load', function() {
-                      navigator.serviceWorker.register('/sw.js').then(function(registration) {
-                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                        // Ensure updates are applied immediately
-                        registration.update();
-                      }, function(err) {
-                        console.log('ServiceWorker registration failed: ', err);
+        <GlobalErrorBoundary>
+          <QueryProvider>
+            <AuthProvider>
+              {children}
+              <Toaster position="top-right" richColors />
+              <script
+                dangerouslySetInnerHTML={{
+                  __html: `
+                    if ('serviceWorker' in navigator) {
+                      window.addEventListener('load', function() {
+                        navigator.serviceWorker.register('/sw.js').then(function(registration) {
+                          console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                          // Ensure updates are applied immediately
+                          registration.update();
+                        }, function(err) {
+                          console.log('ServiceWorker registration failed: ', err);
+                        });
                       });
-                    });
-                  }
-                `,
-              }}
-            />
-          </AuthProvider>
-        </QueryProvider>
+                    }
+                  `,
+                }}
+              />
+            </AuthProvider>
+          </QueryProvider>
+        </GlobalErrorBoundary>
       </body>
     </html>
   );

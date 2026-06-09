@@ -20,9 +20,12 @@ export class ProductsService {
   async create(data: {
     name: string;
     sku: string;
+    barcode?: string;
     description?: string;
     unitPrice: number;
     unit?: string;
+    purchaseUnit?: string;
+    purchaseFactor?: number;
     vendorId?: string;
     reorderThreshold?: number;
     initialQuantity?: number;
@@ -32,9 +35,12 @@ export class ProductsService {
       data: {
         name: data.name,
         sku: data.sku,
+        barcode: data.barcode,
         description: data.description,
         unitPrice: data.unitPrice,
         unit: data.unit || 'ea',
+        purchaseUnit: data.purchaseUnit || data.unit || 'ea',
+        purchaseFactor: data.purchaseFactor || 1.0,
         reorderThreshold: data.reorderThreshold || 10,
         vendor: data.vendorId ? { connect: { id: data.vendorId } } : undefined,
         tenant: { connect: { id: tenantId } },
@@ -42,9 +48,10 @@ export class ProductsService {
     });
 
     // Create initial inventory record
-    await this.prisma.inventory.create({
+    const inventory = await this.prisma.inventory.create({
       data: {
         product: { connect: { id: product.id } },
+        location: 'Main',
         quantity: data.initialQuantity || 0,
         tenant: { connect: { id: tenantId } },
       },
@@ -55,11 +62,7 @@ export class ProductsService {
       await this.prisma.inventoryTransaction.create({
         data: {
           product: { connect: { id: product.id } },
-          inventory: { 
-            connect: { 
-              productId: product.id // This works because inventory has a unique constraint on productId
-            } 
-          },
+          inventory: { connect: { id: inventory.id } },
           quantity: data.initialQuantity,
           type: 'ADJUSTMENT',
           notes: 'Initial stock',
